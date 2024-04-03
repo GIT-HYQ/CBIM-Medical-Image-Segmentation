@@ -57,11 +57,11 @@ def inference_sliding_window(net, img, args):
     half_win_d = win_d // 2
     half_win_h = win_h // 2
     half_win_w = win_w // 2
-
+    
     pred_output = torch.zeros((B, args.classes, D, H, W)).to(img.device)
-
     counter = torch.zeros((B, 1, D, H, W)).to(img.device)
     one_count = torch.ones((B, 1, win_d, win_h, win_w)).to(img.device)
+
 
     with torch.no_grad():
         for i in range(D // half_win_d):

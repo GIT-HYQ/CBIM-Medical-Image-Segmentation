@@ -3,7 +3,7 @@ from .unet import UNet
 from .unetpp import UNetPlusPlus
 from .attention_unet import AttentionUNet
 from .unetr import UNETR
-from .vtunet import VTUNet
+#from .vtunet import VTUNet
 from .medformer import MedFormer
 from .swin_unetr import SwinUNETR
 from .nnformer import nnFormer

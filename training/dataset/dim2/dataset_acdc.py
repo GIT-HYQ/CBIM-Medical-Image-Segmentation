@@ -160,7 +160,7 @@ class CMRDataset(Dataset):
         rand_x = diff_H // 2
         rand_y = diff_W // 2
 
-        croped_img = img[:, rand_x:rand_x+self.args.training_size[0], rand_y:rand_y+self.args.training_size[0]]
-        croped_lab = label[:, rand_x:rand_x+self.args.training_size[1], rand_y:rand_y+self.args.training_size[1]]
+        croped_img = img[:, rand_x:rand_x+self.args.training_size[0], rand_y:rand_y+self.args.training_size[1]]
+        croped_lab = label[:, rand_x:rand_x+self.args.training_size[0], rand_y:rand_y+self.args.training_size[1]]
 
         return croped_img, croped_lab

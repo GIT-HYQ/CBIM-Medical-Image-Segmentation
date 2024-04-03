@@ -1,10 +1,8 @@
 absl-py==1.4.0
 addict==2.4.0
-apex==0.1
 astunparse==1.6.3
 batchgenerators==0.25
 cachetools==5.3.0
-certifi @ file:///croot/certifi_1671487769961/work/certifi
 charset-normalizer==2.1.1
 cmake==3.25.0
 contextlib2==21.6.0
@@ -74,7 +72,7 @@ termcolor==2.2.0
 threadpoolctl==3.1.0
 tifffile==2023.3.15
 timm==0.6.12
-torch==2.0.0+cu118
+torch==2.0.1+cu118
 torchaudio==2.0.1+cu118
 torchvision==0.15.1+cu118
 tqdm==4.65.0
