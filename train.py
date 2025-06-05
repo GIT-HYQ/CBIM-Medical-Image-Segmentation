@@ -46,6 +46,7 @@ import collections
 from random import shuffle
 
 warnings.filterwarnings("ignore", category=UserWarning)
+from datetime import datetime
 
 
 def train_net(net, args, ema_net=None, fold_idx=0):
@@ -62,6 +63,9 @@ def train_net(net, args, ema_net=None, fold_idx=0):
         num_workers=args.num_workers, 
         persistent_workers=(args.num_workers>0)
     )
+
+    valset = get_dataset(args, mode='val', fold_idx=fold_idx)
+    valLoader = data.DataLoader(valset, batch_size=1, pin_memory=True, shuffle=False, num_workers=2)
 
     testset = get_dataset(args, mode='test', fold_idx=fold_idx)
     testLoader = data.DataLoader(testset, batch_size=1, pin_memory=True, shuffle=False, num_workers=2)
@@ -85,6 +89,10 @@ def train_net(net, args, ema_net=None, fold_idx=0):
     ################################################################################
     # Start training
     best_Dice = np.zeros(args.classes)
+    best_IoU = np.zeros(args.classes)
+    best_ACC = np.zeros(args.classes)
+    best_SPE = np.zeros(args.classes)
+    best_SEN = np.zeros(args.classes)
     best_HD = np.ones(args.classes) * 1000
     best_ASD = np.ones(args.classes) * 1000
 
@@ -100,24 +108,36 @@ def train_net(net, args, ema_net=None, fold_idx=0):
         # Evaluation, save checkpoint and log training info
         net_for_eval = ema_net if args.ema else net 
         
-        # save the latest checkpoint, including net, ema_net, and optimizer
-        torch.save({
-            'epoch': epoch+1,
-            'model_state_dict': net.state_dict() if not args.torch_compile else net._orig_mod.state_dict(),
-            'ema_model_state_dict': ema_net.state_dict() if args.ema else None,
-            'optimizer_state_dict': optimizer.state_dict(),
-        }, f"{args.cp_path}{args.dataset}/{args.unique_name}/fold_{fold_idx}_latest.pth")
+        # # save the latest checkpoint, including net, ema_net, and optimizer
+        # torch.save({
+        #     'epoch': epoch+1,
+        #     'model_state_dict': net.state_dict() if not args.torch_compile else net._orig_mod.state_dict(),
+        #     'ema_model_state_dict': ema_net.state_dict() if args.ema else None,
+        #     'optimizer_state_dict': optimizer.state_dict(),
+        # }, f"{args.cp_path}{args.dataset}/{args.unique_name}/fold_{fold_idx}_latest.pth")
    
         if (epoch+1) % args.val_freq == 0:
+            # args.cp_dir = f"{args.cp_path}/{args.dataset}/{args.unique_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            # save the latest checkpoint, including net, ema_net, and optimizer
+            torch.save({
+                'epoch': epoch+1,
+                'model_state_dict': net.state_dict() if not args.torch_compile else net._orig_mod.state_dict(),
+                'ema_model_state_dict': ema_net.state_dict() if args.ema else None,
+                'optimizer_state_dict': optimizer.state_dict(),
+            }, f"{args.cp_dir}/fold_{fold_idx}_latest.pth")
 
-            dice_list_test, ASD_list_test, HD_list_test = validation(net_for_eval, testLoader, args)
+            dice_list_test, ASD_list_test, HD_list_test, IoU_list_test, ACC_list_test, SPE_list_test, SEN_list_test = validation(net_for_eval, valLoader, args)
             dice_list_test, ASD_list_test, HD_list_test = filter_validation_results(dice_list_test, ASD_list_test, HD_list_test, args) # filter results for some dataset, e.g. amos_mr
-            log_evaluation_result(writer, dice_list_test, ASD_list_test, HD_list_test, 'test', epoch, args)
+            log_evaluation_result(writer, dice_list_test, ASD_list_test, HD_list_test, IoU_list_test, ACC_list_test, SPE_list_test, SEN_list_test, 'test', epoch, args)
             
             if dice_list_test.mean() >= best_Dice.mean():
                 best_Dice = dice_list_test
                 best_HD = HD_list_test
                 best_ASD = ASD_list_test
+                best_IoU = IoU_list_test
+                best_ACC = ACC_list_test
+                best_SPE = SPE_list_test
+                best_SEN = SEN_list_test
 
                 # Save the checkpoint with best performance
                 torch.save({
@@ -125,14 +145,36 @@ def train_net(net, args, ema_net=None, fold_idx=0):
                     'model_state_dict': net.state_dict() if not args.torch_compile else net._orig_mod.state_dict(),
                     'ema_model_state_dict': ema_net.state_dict() if args.ema else None,
                     'optimizer_state_dict': optimizer.state_dict(),
-                }, f"{args.cp_path}{args.dataset}/{args.unique_name}/fold_{fold_idx}_best.pth")
+                }, f"{args.cp_dir}/fold_{fold_idx}_best.pth")
             
-            logging.info("Evaluation Done")
-            logging.info(f"Dice: {dice_list_test.mean():.4f}/Best Dice: {best_Dice.mean():.4f}")
+            logging.info(f"Evaluation epoch:{epoch+1} Done")
+            logging.info(f"Dice: {dice_list_test.mean():.4f}/Best Dice: {best_Dice.mean():.4f}, Best IoU:{best_IoU.mean():.4f}, Best ACC:{best_ACC.mean():.4f}")
+            logging.info(f"Best SPE:{best_SPE.mean():.4f}, Best SEN:{best_SEN.mean():.4f}")
     
         writer.add_scalar('LR', exp_scheduler, epoch+1)
     
-    return best_Dice, best_HD, best_ASD
+    # test best.pth
+    best_pth = f"{args.cp_dir}/fold_{fold_idx}_best.pth"
+    if os.path.exists(best_pth):
+        checkpoint = torch.load(best_pth)
+        # print(checkpoint)
+        net.load_state_dict(checkpoint['model_state_dict'])
+        if args.ema:
+            ema_net.load_state_dict(checkpoint['ema_model_state_dict'])
+        net_for_eval = ema_net if args.ema else net 
+        # test_Dice, test_ASD, test_HD, test_IoU, test_ACC, test_SPE, test_SEN = validation(net_for_eval, testLoader, args, mode="Testing")
+        best_Dice, best_ASD, best_HD, best_IoU, best_ACC, best_SPE, best_SEN = validation(net_for_eval, testLoader, args, mode="Testing")
+        best_epoch = checkpoint['epoch']
+        # logging.info(f"Testing epoch:{best_epoch} Done")
+        # logging.info(f"Test Dice: {test_Dice.mean():.4f}, Test IoU:{test_IoU.mean():.4f}, Test ACC:{test_ACC.mean():.4f}")
+        # logging.info(f"Test SPE:{test_SPE.mean():.4f}, Best SEN:{test_SEN.mean():.4f}")
+
+        logging.info(f"Test epoch:{best_epoch} Done")
+        logging.info(f"Best Dice: {best_Dice.mean():.4f}, Best IoU:{best_IoU.mean():.4f}, Best ACC:{best_ACC.mean():.4f}")
+        logging.info(f"Best SPE:{best_SPE.mean():.4f}, Best SEN:{best_SEN.mean():.4f}")
+
+    
+    return best_Dice, best_HD, best_ASD, best_IoU, best_ACC, best_SPE, best_SEN
 
 
 def train_epoch(trainLoader, net, ema_net, optimizer, epoch, writer, criterion, criterion_dl, scaler, args):
@@ -203,6 +245,7 @@ def train_epoch(trainLoader, net, ema_net, optimizer, epoch, writer, criterion, 
                 scaler.update()
         else:
             result = net(img)
+            # print(result.shape, label.shape, label.squeeze(1).shape)
             loss = 0 
             if isinstance(result, tuple) or isinstance(result, list):
                 # If use deep supervision, add all loss together 
@@ -254,7 +297,9 @@ def get_parser():
     parser.add_argument('--unique_name', type=str, default='test', help='unique experiment name')
     
     parser.add_argument('--gpu', type=str, default='0')
-
+    parser.add_argument('--reproduce_seed', type=int, default=42)
+    parser.add_argument('--save', action='store_true', help='save images')
+    
     args = parser.parse_args()
 
     config_path = 'config/%s/%s_%s.yaml'%(args.dataset, args.model, args.dimension)
@@ -293,6 +338,20 @@ def init_network(args):
         net = torch.compile(net)
     return net, ema_net 
 
+def set_seed(seed):
+    # for hash
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    # for python and numpy
+    random.seed(seed)
+    np.random.seed(seed)
+    # for cpu gpu
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    # for cudnn
+    torch.backends.benchmark = False
+    torch.backends.deterministic = True
+    # torch.use_deterministic_algorithms(True)
 
 if __name__ == '__main__':
     
@@ -305,20 +364,21 @@ if __name__ == '__main__':
     
 
     if args.reproduce_seed is not None:
-        random.seed(args.reproduce_seed)
-        np.random.seed(args.reproduce_seed)
-        torch.manual_seed(args.reproduce_seed)
+        # random.seed(args.reproduce_seed)
+        # np.random.seed(args.reproduce_seed)
+        # torch.manual_seed(args.reproduce_seed)
 
-        if hasattr(torch, 'set_deterministic'):
-            torch.set_deterministic(True)
-        torch.backends.cudnn.benchmark = False
-        torch.backends.cudnn.deterministic = True
+        # if hasattr(torch, 'set_deterministic'):
+        #     torch.set_deterministic(True)
+        # torch.backends.cudnn.benchmark = False
+        # torch.backends.cudnn.deterministic = True
+        set_seed(args.reproduce_seed)
    
-    Dice_list, HD_list, ASD_list = [], [], []
+    Dice_list, HD_list, ASD_list, IoU_list, ACC_list, SPE_list, SEN_list = [], [], [], [], [], [], []
 
     for fold_idx in range(args.k_fold):
         
-        args.cp_dir = f"{args.cp_path}/{args.dataset}/{args.unique_name}"
+        args.cp_dir = f"{args.cp_path}/{args.dataset}/{args.unique_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         os.makedirs(args.cp_dir, exist_ok=True)
         configure_logger(0, args.cp_dir+f"/fold_{fold_idx}.txt")
         save_configure(args)
@@ -334,13 +394,17 @@ if __name__ == '__main__':
         if args.ema:
             ema_net.cuda()
         logging.info(f"Created Model")
-        best_Dice, best_HD, best_ASD = train_net(net, args, ema_net, fold_idx=fold_idx)
+        best_Dice, best_HD, best_ASD, best_IoU, best_ACC, best_SPE, best_SEN = train_net(net, args, ema_net, fold_idx=fold_idx)
 
         logging.info(f"Training and evaluation on Fold {fold_idx} is done")
 
         Dice_list.append(best_Dice)
         HD_list.append(best_HD)
         ASD_list.append(best_ASD)
+        IoU_list.append(best_IoU)
+        ACC_list.append(best_ACC)
+        SPE_list.append(best_SPE)
+        SEN_list.append(best_SEN)
 
     
 
@@ -349,9 +413,13 @@ if __name__ == '__main__':
     total_Dice = np.vstack(Dice_list)
     total_HD = np.vstack(HD_list)
     total_ASD = np.vstack(ASD_list)
+    total_IoU = np.vstack(IoU_list)
+    total_ACC = np.vstack(ACC_list)
+    total_SPE = np.vstack(SPE_list)
+    total_SEN = np.vstack(SEN_list)
     
 
-    with open(f"{args.cp_path}/{args.dataset}/{args.unique_name}/cross_validation.txt",  'w') as f:
+    with open(f"{args.cp_dir}/cross_validation.txt",  'w') as f:
         np.set_printoptions(precision=4, suppress=True) 
         f.write('Dice\n')
         for i in range(args.k_fold):
@@ -360,6 +428,46 @@ if __name__ == '__main__':
         f.write(f"Each Class Dice Std: {np.std(total_Dice, axis=0)}\n")
         f.write(f"All classes Dice Avg: {total_Dice.mean()}\n")
         f.write(f"All classes Dice Std: {np.mean(total_Dice, axis=1).std()}\n")
+
+        f.write("\n")
+
+        f.write('Iou\n')
+        for i in range(args.k_fold):
+            f.write(f"Fold {i}: {IoU_list[i]}\n")
+        f.write(f"Each Class Iou Avg: {np.mean(total_IoU, axis=0)}\n")
+        f.write(f"Each Class Iou Std: {np.std(total_IoU, axis=0)}\n")
+        f.write(f"All classes Iou Avg: {total_IoU.mean()}\n")
+        f.write(f"All classes Iou Std: {np.mean(total_IoU, axis=1).std()}\n")
+
+        f.write("\n")
+
+        f.write('ACC\n')
+        for i in range(args.k_fold):
+            f.write(f"Fold {i}: {ACC_list[i]}\n")
+        f.write(f"Each Class ACC Avg: {np.mean(total_ACC, axis=0)}\n")
+        f.write(f"Each Class ACC Std: {np.std(total_ACC, axis=0)}\n")
+        f.write(f"All classes ACC Avg: {total_ACC.mean()}\n")
+        f.write(f"All classes ACC Std: {np.mean(total_ACC, axis=1).std()}\n")
+
+        f.write("\n")
+
+        f.write('SPE\n')
+        for i in range(args.k_fold):
+            f.write(f"Fold {i}: {SPE_list[i]}\n")
+        f.write(f"Each Class SPE Avg: {np.mean(total_SPE, axis=0)}\n")
+        f.write(f"Each Class SPE Std: {np.std(total_SPE, axis=0)}\n")
+        f.write(f"All classes SPE Avg: {total_SPE.mean()}\n")
+        f.write(f"All classes SPE Std: {np.mean(total_SPE, axis=1).std()}\n")
+
+        f.write("\n")
+    
+        f.write('SEN\n')
+        for i in range(args.k_fold):
+            f.write(f"Fold {i}: {SEN_list[i]}\n")
+        f.write(f"Each Class SEN Avg: {np.mean(total_SEN, axis=0)}\n")
+        f.write(f"Each Class SEN Std: {np.std(total_SEN, axis=0)}\n")
+        f.write(f"All classes SEN Avg: {total_SEN.mean()}\n")
+        f.write(f"All classes SEN Std: {np.mean(total_SEN, axis=1).std()}\n")
 
         f.write("\n")
 

@@ -14,7 +14,7 @@ def get_optimizer(args, net):
         return optim.AdamW(net.parameters(), lr=args.base_lr, betas=args.betas, weight_decay=args.weight_decay, eps=1e-5) # larger eps has better stability during AMP training
 
 
-def log_evaluation_result(writer, dice_list, ASD_list, HD_list, name, epoch, args):
+def log_evaluation_result(writer, dice_list, ASD_list, HD_list, IoU_list, ACC_list, SPE_list, SEN_list, name, epoch, args):
     C = dice_list.shape[0]
 
     writer.add_scalar('Dice/%s_AVG'%name, dice_list.mean(), epoch+1)
@@ -26,6 +26,20 @@ def log_evaluation_result(writer, dice_list, ASD_list, HD_list, name, epoch, arg
     writer.add_scalar('HD/%s_AVG'%name, HD_list.mean(), epoch+1)
     for idx in range(C):
         writer.add_scalar('HD/%s_HD%d'%(name, idx+1), HD_list[idx], epoch+1)
+    
+    writer.add_scalar('IoU/%s_AVG'%name, IoU_list.mean(), epoch+1)
+    for idx in range(C):
+        writer.add_scalar('IoU/%s_IoU%d'%(name, idx+1), IoU_list[idx], epoch+1)
+    writer.add_scalar('ACC/%s_AVG'%name, ACC_list.mean(), epoch+1)
+    for idx in range(C):
+        writer.add_scalar('ACC/%s_ACC%d'%(name, idx+1), ACC_list[idx], epoch+1)
+    writer.add_scalar('SPE/%s_AVG'%name, SPE_list.mean(), epoch+1)
+    for idx in range(C):
+        writer.add_scalar('SPE/%s_SPE%d'%(name, idx+1), SPE_list[idx], epoch+1)
+    writer.add_scalar('SEN/%s_AVG'%name, SEN_list.mean(), epoch+1)
+    for idx in range(C):
+        writer.add_scalar('SEN/%s_SEN%d'%(name, idx+1), SEN_list[idx], epoch+1)
+
 
 def unwrap_model_checkpoint(net, ema_net, args):
     net_state_dict = net.module if args.distributed else net 

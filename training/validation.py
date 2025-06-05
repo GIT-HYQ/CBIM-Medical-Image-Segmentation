@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributed as dist
 from inference.utils import get_inference
-from metric.utils import calculate_distance, calculate_dice, calculate_dice_split
+from metric.utils import calculate_distance, calculate_dice, calculate_dice_split, calculate_iou
 import numpy as np
 from .utils import concat_all_gather, remove_wrap_arounds
 import logging
@@ -11,27 +11,50 @@ import pdb
 from utils import is_master
 from tqdm import tqdm
 import SimpleITK as sitk
+import cv2
+import os
+
+def save_images(img, msk, msk_pred, name, save_path):
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+    img = img.squeeze(0).permute(1,2,0).detach().cpu().numpy() * 255
+    msk = msk.permute(1,2,0).detach().cpu().numpy() * 255
+    msk_pred = msk_pred.permute(1,2,0).detach().cpu().numpy() * 255 
+    image_path = save_path + name.replace('.png', '_src.png')
+    mask_path = save_path + name.replace('.png', '_mask.png')
+    pred_path = save_path + name.replace('.png', '_pred.png')
+    cv2.imwrite(image_path, img)
+    cv2.imwrite(mask_path, msk)
+    cv2.imwrite(pred_path, msk_pred)
 
 
-def validation(net, dataloader, args):
+def validation(net, dataloader, args, mode='Evaluating'):
     
     net.eval()
 
     dice_list = []
     ASD_list = []
     HD_list = []
+    IoU_list = []
+    ACC_list = []
+    SPE_list = []
+    SEN_list = []
     for i in range(args.classes-1): # background is not including in validation
         dice_list.append([])
         ASD_list.append([])
         HD_list.append([])
+        IoU_list.append([])
+        ACC_list.append([])
+        SPE_list.append([])
+        SEN_list.append([])
 
     inference = get_inference(args)
     
-    logging.info("Evaluating")
+    logging.info(mode)
 
     with torch.no_grad():
         iterator = tqdm(dataloader)
-        for (images, labels, spacing) in iterator:
+        for (images, labels, spacing, name) in iterator:
             # spacing here is used for distance metrics calculation
             
             inputs, labels = images.float().cuda(), labels.cuda().to(torch.int8)
@@ -49,7 +72,10 @@ def validation(net, dataloader, args):
             else:
                 label_pred = label_pred.squeeze(0)
                 labels = labels.squeeze(0).squeeze(0)
-               
+            
+            if args.save and mode == 'Testing':
+                save_path = args.cp_dir + "/output/"
+                save_images(inputs, labels, label_pred, name[0], save_path)
 
             tmp_ASD_list, tmp_HD_list = calculate_distance(label_pred, labels, spacing[0], args.classes)
             # comment this for fast debugging (HD and ASD computation for large 3D images is slow)
@@ -62,10 +88,14 @@ def validation(net, dataloader, args):
             # The dice evaluation is based on the whole image. If image size too big, might cause gpu OOM.
             # Use calculate_dice_split instead if got OOM, it will evaluate patch by patch to reduce gpu memory consumption.
             #dice, _, _ = calculate_dice(label_pred.view(-1, 1), labels.view(-1, 1), args.classes)
-            dice, _, _ = calculate_dice_split(label_pred.view(-1, 1), labels.view(-1, 1), args.classes)
+            # dice, _, _ = calculate_dice_split(label_pred.view(-1, 1), labels.view(-1, 1), args.classes)
+            iou, dice2, acc, spe, sen = calculate_iou(label_pred.view(-1, 1), labels.view(-1, 1), args.classes)
+            # print("dice:", dice)
+            # print("dice2:", dice2)
 
             # exclude background
-            dice = dice.cpu().numpy()[1:]
+            # dice = dice.cpu().numpy()[1:]
+            # print("dice:", dice)
 
             unique_cls = torch.unique(labels)
             for cls in range(0, args.classes-1):
@@ -74,17 +104,30 @@ def validation(net, dataloader, args):
                     # only classes appear in the GT are used for evaluation
                     ASD_list[cls].append(tmp_ASD_list[cls])
                     HD_list[cls].append(tmp_HD_list[cls])
-                    dice_list[cls].append(dice[cls])
+                    # dice_list[cls].append(dice[cls])
+                    dice_list[cls].append(dice2)
+                    IoU_list[cls].append(iou)
+                    ACC_list[cls].append(acc)
+                    SPE_list[cls].append(spe)
+                    SEN_list[cls].append(sen)
 
     out_dice = []
     out_ASD = []
     out_HD = []
+    out_IoU = []
+    out_ACC = []
+    out_SPE = []
+    out_SEN = []
     for cls in range(0, args.classes-1):
         out_dice.append(np.array(dice_list[cls]).mean())
         out_ASD.append(np.array(ASD_list[cls]).mean())
         out_HD.append(np.array(HD_list[cls]).mean())
+        out_IoU.append(np.array(IoU_list[cls]).mean())
+        out_ACC.append(np.array(ACC_list[cls]).mean())
+        out_SPE.append(np.array(SPE_list[cls]).mean())
+        out_SEN.append(np.array(SEN_list[cls]).mean())
 
-    return np.array(out_dice), np.array(out_ASD), np.array(out_HD)
+    return np.array(out_dice), np.array(out_ASD), np.array(out_HD), np.array(out_IoU), np.array(out_ACC), np.array(out_SPE), np.array(out_SEN)
 
 
 
