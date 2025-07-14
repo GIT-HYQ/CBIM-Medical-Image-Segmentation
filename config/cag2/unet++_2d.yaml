@@ -5,21 +5,21 @@ modality: CT
 
 
 #MODEL
-arch: resunet
+arch: unet++
 in_chan: 1
 base_chan: 32
-block: BasicBlock
 
 
 #TRAIN
 epochs: 600
 training_size: [512, 512]    # training crop size
 start_epoch: 0
-num_workers: 4
+num_workers: 4 # modify this if I/O or augmentation is slow
 aug_device: 'cpu'
 
-split_seed: 0     # random seed for train/test split (suffule) before setting cross validation fold
-k_fold: 1   # number of folds in cross validation
+
+split_seed: 0 # random seed for train/test split (shuffle) before setting cross validation fold
+k_fold: 1 # number of folds in cross validation
 
 optimizer: adamw
 base_lr: 0.0005
@@ -37,14 +37,16 @@ gamma_range: [0.5, 1.6]
 
 print_freq: 10
 
-
 #VALIDATION
 ema: False
 ema_alpha: 0.99
 val_freq: 10
 
+
+
 #INFERENCE
 sliding_window: False
+
 
 # DDP
 world_size: 1
@@ -54,4 +56,5 @@ port: 10000
 dist_url: 'tcp://localhost:10000' # make sure the port here is the same as in port
 dist_backend: "nccl"
 multiprocessing_distributed: true # if use PyTorch DDP for multi-gpu training
-reproduce_seed: 2023  # use any seed you want, or use 'null' to disable deterministic behavior
+reproduce_seed: 2023 # use any seed you want, or use 'null' to disable deterministic behavior
+
