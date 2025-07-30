@@ -1,6 +1,7 @@
 #DATA
 # data_root: /home/share/clr/share/data/Coronary_mix_v4
-data_root: /home/share/clr/share/data/cag_seg_mix_v5
+# data_root: /home/share/clr/share/data/cag_seg_mix_v5
+data_root: /home/share/clr/share/data/cag_seg_v6
 classes: 2
 modality: CT
 
