@@ -50,6 +50,9 @@ def get_dataset(args, mode, **kwargs):
 
             return LungDataset(args, mode=mode, k_fold=args.k_fold, k=kwargs['fold_idx'], seed=args.split_seed)
             
-
+        elif args.dataset == 'abdomenatlas':
+            from .dim3.dataset_abdomenatlas import AbdomenAtlasDataset
+            
+            return AbdomenAtlasDataset(args, mode=mode, k_fold=args.k_fold, k=kwargs['fold_idx'], seed=args.split_seed)
 
 

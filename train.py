@@ -68,7 +68,7 @@ def train_net(net, args, ema_net=None, fold_idx=0):
     valLoader = data.DataLoader(valset, batch_size=1, pin_memory=True, shuffle=False, num_workers=2)
 
     testset = get_dataset(args, mode='test', fold_idx=fold_idx)
-    testLoader = data.DataLoader(testset, batch_size=1, pin_memory=True, shuffle=False, num_workers=2)
+    testLoader = data.DataLoader(testset, batch_size=1, pin_memory=True, shuffle=False, num_workers=0)
     
     logging.info(f"Created Dataset and DataLoader")
 

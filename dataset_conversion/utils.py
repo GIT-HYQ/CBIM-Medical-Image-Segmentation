@@ -1,6 +1,7 @@
 import numpy as np
 import SimpleITK as sitk
 from skimage.measure import regionprops
+import pdb
 
 import os
 
@@ -32,7 +33,16 @@ def ResampleLabelToRef(imLabel, imRef, interp=sitk.sitkNearestNeighbor):
     
     return ResampledLabel
 
+def reorient_image(image, desired_orientation='RAI'):
+    
+    current_orientation = sitk.DICOMOrientImageFilter().GetOrientationFromDirectionCosines(image.GetDirection())
 
+    if current_orientation != desired_orientation:
+        reorient_filter = sitk.DICOMOrientImageFilter()
+        reorient_filter.SetDesiredCoordinateOrientation(desired_orientation)
+        image = reorient_filter.Execute(image)
+
+    return image
 
 def ITKReDirection(itkimg, target_direction=(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)):
     # target direction should be orthognal, i.e. (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)

@@ -20,7 +20,7 @@ from torch.utils.data.distributed import DistributedSampler
 
 from training.utils import update_ema_variables
 from training.losses import DiceLoss
-from training.validation import validation_ddp as validation
+from training.validation import validation_ddp_with_large_images as validation
 from training.utils import (
     exp_lr_scheduler_with_warmup, 
     log_evaluation_result, 
@@ -72,10 +72,10 @@ def train_net(net, trainset, testset, args, ema_net=None, fold_idx=0):
     testLoader = data.DataLoader(
         testset,
         batch_size=1,  # has to be 1 sample per gpu, as the input size of 3D input is different
-        shuffle=(test_sampler is None), 
+        shuffle=False, 
         sampler=test_sampler,
         pin_memory=True,
-        num_workers=args.num_workers
+        num_workers=0
     )
     
     logging.info(f"Created Dataset and DataLoader")
@@ -350,12 +350,12 @@ def main_worker(proc_idx, ngpus_per_node, fold_idx, args, result_dict=None, trai
         ema_net.to('cuda')
     if args.distributed:
         net = nn.SyncBatchNorm.convert_sync_batchnorm(net)
-        net = DistributedDataParallel(net, device_ids=[args.proc_idx], find_unused_parameters=True)
+        net = DistributedDataParallel(net, device_ids=[args.proc_idx], find_unused_parameters=False)
         # set find_unused_parameters to True if some of the parameters is not used in forward
         
         if args.ema:
             ema_net = nn.SyncBatchNorm.convert_sync_batchnorm(ema_net)
-            ema_net = DistributedDataParallel(ema_net, device_ids=[args.proc_idx], find_unused_parameters=True)
+            ema_net = DistributedDataParallel(ema_net, device_ids=[args.proc_idx], find_unused_parameters=False)
             
             for p in ema_net.parameters():
                 p.requires_grad_(False)
@@ -397,7 +397,8 @@ if __name__ == '__main__':
     
     
     Dice_list, HD_list, ASD_list = [], [], []
-    for fold_idx in range(args.k_fold):
+    #for fold_idx in range(args.k_fold):
+    for fold_idx in range(0, 1):
         if args.multiprocessing_distributed:
             with mp.Manager() as manager:
             # use the Manager to gather results from the processes
