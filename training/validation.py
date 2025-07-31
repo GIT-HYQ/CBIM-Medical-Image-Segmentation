@@ -20,9 +20,9 @@ def save_images(img, msk, msk_pred, name, save_path):
     img = img.squeeze(0).permute(1,2,0).detach().cpu().numpy() * 255
     msk = msk.permute(1,2,0).detach().cpu().numpy() * 255
     msk_pred = msk_pred.permute(1,2,0).detach().cpu().numpy() * 255 
-    image_path = save_path + name.replace('.png', '_src.png')
-    mask_path = save_path + name.replace('.png', '_mask.png')
-    pred_path = save_path + name.replace('.png', '_pred.png')
+    image_path = os.path.join(save_path, name.replace('.png', '_src.png'))
+    mask_path = os.path.join(save_path, name.replace('.png', '_mask.png'))
+    pred_path = os.path.join(save_path, name.replace('.png', '_pred.png'))
     cv2.imwrite(image_path, img)
     cv2.imwrite(mask_path, msk)
     cv2.imwrite(pred_path, msk_pred)
@@ -74,7 +74,7 @@ def validation(net, dataloader, args, mode='Evaluating'):
                 labels = labels.squeeze(0).squeeze(0)
             
             if args.save and mode == 'Testing':
-                save_path = args.cp_dir + "/output/"
+                save_path = args.save_path if args.save_path is not None else args.cp_dir + "/preds"
                 save_images(inputs, labels, label_pred, name[0], save_path)
 
             tmp_ASD_list, tmp_HD_list = calculate_distance(label_pred, labels, spacing[0], args.classes)
