@@ -130,6 +130,106 @@ def validation(net, dataloader, args, mode='Evaluating'):
     return np.array(out_dice), np.array(out_ASD), np.array(out_HD), np.array(out_IoU), np.array(out_ACC), np.array(out_SPE), np.array(out_SEN)
 
 
+def validation_without_calc(net, dataloader, args, mode='Evaluating'):
+    
+    net.eval()
+
+    dice_list = []
+    ASD_list = []
+    HD_list = []
+    IoU_list = []
+    ACC_list = []
+    SPE_list = []
+    SEN_list = []
+    for i in range(args.classes-1): # background is not including in validation
+        dice_list.append([])
+        ASD_list.append([])
+        HD_list.append([])
+        IoU_list.append([])
+        ACC_list.append([])
+        SPE_list.append([])
+        SEN_list.append([])
+
+    inference = get_inference(args)
+    
+    logging.info(mode)
+
+    with torch.no_grad():
+        iterator = tqdm(dataloader)
+        for (images, labels, spacing, name) in iterator:
+            # spacing here is used for distance metrics calculation
+            
+            inputs, labels = images.float().cuda(), labels.cuda().to(torch.int8)
+            
+            if args.dimension == '2d':
+                inputs = inputs.permute(1, 0, 2, 3)
+            
+            pred = inference(net, inputs, args)
+
+            _, label_pred = torch.max(pred, dim=1)
+            label_pred = label_pred.to(torch.int8)
+            
+            if args.dimension == '2d':
+                labels = labels.squeeze(0)
+            else:
+                label_pred = label_pred.squeeze(0)
+                labels = labels.squeeze(0).squeeze(0)
+            
+            if args.save and mode == 'Testing':
+                save_path = args.save_path if args.save_path is not None else args.cp_dir + "/preds"
+                save_images(inputs, labels, label_pred, name[0], save_path)
+
+            tmp_ASD_list, tmp_HD_list = calculate_distance(label_pred, labels, spacing[0], args.classes)
+            # comment this for fast debugging (HD and ASD computation for large 3D images is slow)
+            #tmp_ASD_list = np.zeros(args.classes-1)
+            #tmp_HD_list = np.zeros(args.classes-1)
+
+            tmp_ASD_list =  np.clip(np.nan_to_num(tmp_ASD_list, nan=500), 0, 500)
+            tmp_HD_list = np.clip(np.nan_to_num(tmp_HD_list, nan=500), 0, 500)
+        
+            # The dice evaluation is based on the whole image. If image size too big, might cause gpu OOM.
+            # Use calculate_dice_split instead if got OOM, it will evaluate patch by patch to reduce gpu memory consumption.
+            #dice, _, _ = calculate_dice(label_pred.view(-1, 1), labels.view(-1, 1), args.classes)
+            # dice, _, _ = calculate_dice_split(label_pred.view(-1, 1), labels.view(-1, 1), args.classes)
+            # iou, dice2, acc, spe, sen = calculate_iou(label_pred.view(-1, 1), labels.view(-1, 1), args.classes)
+            # print("dice:", dice)
+            # print("dice2:", dice2)
+
+            # exclude background
+            # dice = dice.cpu().numpy()[1:]
+            # print("dice:", dice)
+
+            unique_cls = torch.unique(labels)
+            for cls in range(0, args.classes-1):
+                if cls+1 in unique_cls: 
+                    # in case some classes are missing in the GT
+                    # only classes appear in the GT are used for evaluation
+                    ASD_list[cls].append(tmp_ASD_list[cls])
+                    HD_list[cls].append(tmp_HD_list[cls])
+                    # dice_list[cls].append(dice[cls])
+                    # dice_list[cls].append(dice2)
+                    # IoU_list[cls].append(iou)
+                    # ACC_list[cls].append(acc)
+                    # SPE_list[cls].append(spe)
+                    # SEN_list[cls].append(sen)
+
+    out_dice = []
+    out_ASD = []
+    out_HD = []
+    out_IoU = []
+    out_ACC = []
+    out_SPE = []
+    out_SEN = []
+    for cls in range(0, args.classes-1):
+        out_dice.append(np.array(dice_list[cls]).mean())
+        out_ASD.append(np.array(ASD_list[cls]).mean())
+        out_HD.append(np.array(HD_list[cls]).mean())
+        out_IoU.append(np.array(IoU_list[cls]).mean())
+        out_ACC.append(np.array(ACC_list[cls]).mean())
+        out_SPE.append(np.array(SPE_list[cls]).mean())
+        out_SEN.append(np.array(SEN_list[cls]).mean())
+
+    return np.array(out_dice), np.array(out_ASD), np.array(out_HD), np.array(out_IoU), np.array(out_ACC), np.array(out_SPE), np.array(out_SEN)
 
 
 def validation_ddp(net, dataloader, args):

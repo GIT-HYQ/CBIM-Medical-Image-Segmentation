@@ -8,7 +8,7 @@ from model.utils import get_model
 from training.dataset.utils import get_dataset
 from torch.utils import data
 
-from training.validation import validation
+from training.validation import validation, validation_without_calc
 
 import yaml
 import argparse
@@ -50,7 +50,10 @@ def test_net(net, args, ema_net=None, fold_idx=0):
         ema_net.load_state_dict(checkpoint['ema_model_state_dict'])
     net_for_eval = ema_net if args.ema else net 
     # test_Dice, test_ASD, test_HD, test_IoU, test_ACC, test_SPE, test_SEN = validation(net_for_eval, testLoader, args, mode="Testing")
-    best_Dice, best_ASD, best_HD, best_IoU, best_ACC, best_SPE, best_SEN = validation(net_for_eval, testLoader, args, mode="Testing")
+    if args.test_without_calc:
+        best_Dice, best_ASD, best_HD, best_IoU, best_ACC, best_SPE, best_SEN = validation_without_calc(net_for_eval, testLoader, args, mode="Testing")
+    else:
+        best_Dice, best_ASD, best_HD, best_IoU, best_ACC, best_SPE, best_SEN = validation(net_for_eval, testLoader, args, mode="Testing")
     best_epoch = checkpoint['epoch']
     # logging.info(f"Testing epoch:{best_epoch} Done")
     # logging.info(f"Test Dice: {test_Dice.mean():.4f}, Test IoU:{test_IoU.mean():.4f}, Test ACC:{test_ACC.mean():.4f}")
@@ -84,6 +87,7 @@ def get_parser():
     parser.add_argument('--save', action='store_true', help='save images')
     parser.add_argument('--save_path', type=str, default=None, help='save images path')
     parser.add_argument('--test_root', type=str, default=None, help='testset root dir')
+    parser.add_argument('--test_without_calc', default=False, action='store_true', help='test without calc iou')
 
     args = parser.parse_args()
 
