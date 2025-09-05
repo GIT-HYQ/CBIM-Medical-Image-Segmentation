@@ -67,7 +67,7 @@ def train_net(net, args, ema_net=None, fold_idx=0):
     valset = get_dataset(args, mode='val', fold_idx=fold_idx)
     valLoader = data.DataLoader(valset, batch_size=1, pin_memory=True, shuffle=False, num_workers=2)
 
-    testset = get_dataset(args, mode='test', fold_idx=fold_idx)
+    testset = get_dataset(args, mode='val', fold_idx=fold_idx)
     testLoader = data.DataLoader(testset, batch_size=1, pin_memory=True, shuffle=False, num_workers=2)
     
     logging.info(f"Created Dataset and DataLoader")
@@ -299,6 +299,8 @@ def get_parser():
     parser.add_argument('--gpu', type=str, default='0')
     parser.add_argument('--reproduce_seed', type=int, default=42)
     parser.add_argument('--save', action='store_true', help='save images')
+    parser.add_argument('--save_path', type=str, default=None, help='save images path')
+    parser.add_argument('--test_root', type=str, default=None, help='testset root dir')
     
     args = parser.parse_args()
 

@@ -15,6 +15,14 @@ def get_dataset(args, mode, **kwargs):
             from .dim2.dataset_cag import CAGDataset2
             
             return CAGDataset2(args, mode=mode, k_fold=args.k_fold, k=kwargs['fold_idx'], seed=args.split_seed)
+        elif args.dataset == 'drive':
+            from .dim2.dataset_drive import DriveDataset
+            
+            return DriveDataset(args, mode=mode, k_fold=args.k_fold, k=kwargs['fold_idx'], seed=args.split_seed)
+        elif args.dataset == 'stare':
+            from .dim2.dataset_stare import StareDataset
+            
+            return StareDataset(args, mode=mode, k_fold=args.k_fold, k=kwargs['fold_idx'], seed=args.split_seed)
     else:
         if args.dataset == 'acdc':
             from .dim3.dataset_acdc import CMRDataset
