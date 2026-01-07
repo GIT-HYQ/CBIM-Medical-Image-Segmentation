@@ -59,9 +59,10 @@ def test_net(net, args, ema_net=None, fold_idx=0):
     # logging.info(f"Test Dice: {test_Dice.mean():.4f}, Test IoU:{test_IoU.mean():.4f}, Test ACC:{test_ACC.mean():.4f}")
     # logging.info(f"Test SPE:{test_SPE.mean():.4f}, Best SEN:{test_SEN.mean():.4f}")
 
-    logging.info(f"Test epoch:{best_epoch} Done")
-    logging.info(f"Best Dice: {best_Dice.mean():.4f}, Best IoU:{best_IoU.mean():.4f}, Best ACC:{best_ACC.mean():.4f}")
-    logging.info(f"Best SPE:{best_SPE.mean():.4f}, Best SEN:{best_SEN.mean():.4f}")
+    if not args.test_without_calc:
+        logging.info(f"Test epoch:{best_epoch} Done")
+        logging.info(f"Best Dice: {best_Dice.mean():.4f}, Best IoU:{best_IoU.mean():.4f}, Best ACC:{best_ACC.mean():.4f}")
+        logging.info(f"Best SPE:{best_SPE.mean():.4f}, Best SEN:{best_SEN.mean():.4f}")
 
     
     return best_Dice, best_HD, best_ASD, best_IoU, best_ACC, best_SPE, best_SEN
@@ -88,6 +89,7 @@ def get_parser():
     parser.add_argument('--save_path', type=str, default=None, help='save images path')
     parser.add_argument('--test_root', type=str, default=None, help='testset root dir')
     parser.add_argument('--test_without_calc', default=False, action='store_true', help='test without calc iou')
+    parser.add_argument('--test_without_log', default=False, action='store_true', help='test without write log')
 
     args = parser.parse_args()
 
@@ -155,15 +157,16 @@ if __name__ == '__main__':
 
     for fold_idx in range(args.k_fold):
         
-        args.cp_dir = f"{args.cp_path}/{args.dataset}/{args.unique_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        os.makedirs(args.cp_dir, exist_ok=True)
-        configure_logger(0, args.cp_dir+f"/fold_{fold_idx}.txt")
-        save_configure(args)
-        logging.info(
-            f"\nDataset: {args.dataset},\n"
-            + f"Model: {args.model},\n"
-            + f"Dimension: {args.dimension}"
-        )
+        if not args.test_without_log:
+            args.cp_dir = f"{args.cp_path}/{args.dataset}/{args.unique_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            os.makedirs(args.cp_dir, exist_ok=True)
+            configure_logger(0, args.cp_dir+f"/fold_{fold_idx}.txt")
+            save_configure(args)
+            logging.info(
+                f"\nDataset: {args.dataset},\n"
+                + f"Model: {args.model},\n"
+                + f"Dimension: {args.dimension}"
+            )
 
         net, ema_net = init_network(args)
 
@@ -186,85 +189,86 @@ if __name__ == '__main__':
     
 
     ############################################################################################3
-    # Save the cross validation results
-    total_Dice = np.vstack(Dice_list)
-    total_HD = np.vstack(HD_list)
-    total_ASD = np.vstack(ASD_list)
-    total_IoU = np.vstack(IoU_list)
-    total_ACC = np.vstack(ACC_list)
-    total_SPE = np.vstack(SPE_list)
-    total_SEN = np.vstack(SEN_list)
-    
+    if not args.test_without_log:
+        # Save the cross validation results
+        total_Dice = np.vstack(Dice_list)
+        total_HD = np.vstack(HD_list)
+        total_ASD = np.vstack(ASD_list)
+        total_IoU = np.vstack(IoU_list)
+        total_ACC = np.vstack(ACC_list)
+        total_SPE = np.vstack(SPE_list)
+        total_SEN = np.vstack(SEN_list)
+        
 
-    with open(f"{args.cp_dir}/test.txt",  'w') as f:
-        np.set_printoptions(precision=4, suppress=True) 
-        f.write('Dice\n')
-        for i in range(args.k_fold):
-            f.write(f"Fold {i}: {Dice_list[i]}\n")
-        f.write(f"Each Class Dice Avg: {np.mean(total_Dice, axis=0)}\n")
-        f.write(f"Each Class Dice Std: {np.std(total_Dice, axis=0)}\n")
-        f.write(f"All classes Dice Avg: {total_Dice.mean()}\n")
-        f.write(f"All classes Dice Std: {np.mean(total_Dice, axis=1).std()}\n")
+        with open(f"{args.cp_dir}/test.txt",  'w') as f:
+            np.set_printoptions(precision=4, suppress=True) 
+            f.write('Dice\n')
+            for i in range(args.k_fold):
+                f.write(f"Fold {i}: {Dice_list[i]}\n")
+            f.write(f"Each Class Dice Avg: {np.mean(total_Dice, axis=0)}\n")
+            f.write(f"Each Class Dice Std: {np.std(total_Dice, axis=0)}\n")
+            f.write(f"All classes Dice Avg: {total_Dice.mean()}\n")
+            f.write(f"All classes Dice Std: {np.mean(total_Dice, axis=1).std()}\n")
 
-        f.write("\n")
+            f.write("\n")
 
-        f.write('Iou\n')
-        for i in range(args.k_fold):
-            f.write(f"Fold {i}: {IoU_list[i]}\n")
-        f.write(f"Each Class Iou Avg: {np.mean(total_IoU, axis=0)}\n")
-        f.write(f"Each Class Iou Std: {np.std(total_IoU, axis=0)}\n")
-        f.write(f"All classes Iou Avg: {total_IoU.mean()}\n")
-        f.write(f"All classes Iou Std: {np.mean(total_IoU, axis=1).std()}\n")
+            f.write('Iou\n')
+            for i in range(args.k_fold):
+                f.write(f"Fold {i}: {IoU_list[i]}\n")
+            f.write(f"Each Class Iou Avg: {np.mean(total_IoU, axis=0)}\n")
+            f.write(f"Each Class Iou Std: {np.std(total_IoU, axis=0)}\n")
+            f.write(f"All classes Iou Avg: {total_IoU.mean()}\n")
+            f.write(f"All classes Iou Std: {np.mean(total_IoU, axis=1).std()}\n")
 
-        f.write("\n")
+            f.write("\n")
 
-        f.write('ACC\n')
-        for i in range(args.k_fold):
-            f.write(f"Fold {i}: {ACC_list[i]}\n")
-        f.write(f"Each Class ACC Avg: {np.mean(total_ACC, axis=0)}\n")
-        f.write(f"Each Class ACC Std: {np.std(total_ACC, axis=0)}\n")
-        f.write(f"All classes ACC Avg: {total_ACC.mean()}\n")
-        f.write(f"All classes ACC Std: {np.mean(total_ACC, axis=1).std()}\n")
+            f.write('ACC\n')
+            for i in range(args.k_fold):
+                f.write(f"Fold {i}: {ACC_list[i]}\n")
+            f.write(f"Each Class ACC Avg: {np.mean(total_ACC, axis=0)}\n")
+            f.write(f"Each Class ACC Std: {np.std(total_ACC, axis=0)}\n")
+            f.write(f"All classes ACC Avg: {total_ACC.mean()}\n")
+            f.write(f"All classes ACC Std: {np.mean(total_ACC, axis=1).std()}\n")
 
-        f.write("\n")
+            f.write("\n")
 
-        f.write('SPE\n')
-        for i in range(args.k_fold):
-            f.write(f"Fold {i}: {SPE_list[i]}\n")
-        f.write(f"Each Class SPE Avg: {np.mean(total_SPE, axis=0)}\n")
-        f.write(f"Each Class SPE Std: {np.std(total_SPE, axis=0)}\n")
-        f.write(f"All classes SPE Avg: {total_SPE.mean()}\n")
-        f.write(f"All classes SPE Std: {np.mean(total_SPE, axis=1).std()}\n")
+            f.write('SPE\n')
+            for i in range(args.k_fold):
+                f.write(f"Fold {i}: {SPE_list[i]}\n")
+            f.write(f"Each Class SPE Avg: {np.mean(total_SPE, axis=0)}\n")
+            f.write(f"Each Class SPE Std: {np.std(total_SPE, axis=0)}\n")
+            f.write(f"All classes SPE Avg: {total_SPE.mean()}\n")
+            f.write(f"All classes SPE Std: {np.mean(total_SPE, axis=1).std()}\n")
 
-        f.write("\n")
-    
-        f.write('SEN\n')
-        for i in range(args.k_fold):
-            f.write(f"Fold {i}: {SEN_list[i]}\n")
-        f.write(f"Each Class SEN Avg: {np.mean(total_SEN, axis=0)}\n")
-        f.write(f"Each Class SEN Std: {np.std(total_SEN, axis=0)}\n")
-        f.write(f"All classes SEN Avg: {total_SEN.mean()}\n")
-        f.write(f"All classes SEN Std: {np.mean(total_SEN, axis=1).std()}\n")
+            f.write("\n")
+        
+            f.write('SEN\n')
+            for i in range(args.k_fold):
+                f.write(f"Fold {i}: {SEN_list[i]}\n")
+            f.write(f"Each Class SEN Avg: {np.mean(total_SEN, axis=0)}\n")
+            f.write(f"Each Class SEN Std: {np.std(total_SEN, axis=0)}\n")
+            f.write(f"All classes SEN Avg: {total_SEN.mean()}\n")
+            f.write(f"All classes SEN Std: {np.mean(total_SEN, axis=1).std()}\n")
 
-        f.write("\n")
+            f.write("\n")
 
-        f.write("HD\n")
-        for i in range(args.k_fold):
-            f.write(f"Fold {i}: {HD_list[i]}\n")
-        f.write(f"Each Class HD Avg: {np.mean(total_HD, axis=0)}\n")
-        f.write(f"Each Class HD Std: {np.std(total_HD, axis=0)}\n")
-        f.write(f"All classes HD Avg: {total_HD.mean()}\n")
-        f.write(f"All classes HD Std: {np.mean(total_HD, axis=1).std()}\n")
+            f.write("HD\n")
+            for i in range(args.k_fold):
+                f.write(f"Fold {i}: {HD_list[i]}\n")
+            f.write(f"Each Class HD Avg: {np.mean(total_HD, axis=0)}\n")
+            f.write(f"Each Class HD Std: {np.std(total_HD, axis=0)}\n")
+            f.write(f"All classes HD Avg: {total_HD.mean()}\n")
+            f.write(f"All classes HD Std: {np.mean(total_HD, axis=1).std()}\n")
 
-        f.write("\n")
+            f.write("\n")
 
-        f.write("ASD\n")
-        for i in range(args.k_fold):
-            f.write(f"Fold {i}: {ASD_list[i]}\n")
-        f.write(f"Each Class ASD Avg: {np.mean(total_ASD, axis=0)}\n")
-        f.write(f"Each Class ASD Std: {np.std(total_ASD, axis=0)}\n")
-        f.write(f"All classes ASD Avg: {total_ASD.mean()}\n")
-        f.write(f"All classes ASD Std: {np.mean(total_ASD, axis=1).std()}\n")
+            f.write("ASD\n")
+            for i in range(args.k_fold):
+                f.write(f"Fold {i}: {ASD_list[i]}\n")
+            f.write(f"Each Class ASD Avg: {np.mean(total_ASD, axis=0)}\n")
+            f.write(f"Each Class ASD Std: {np.std(total_ASD, axis=0)}\n")
+            f.write(f"All classes ASD Avg: {total_ASD.mean()}\n")
+            f.write(f"All classes ASD Std: {np.mean(total_ASD, axis=1).std()}\n")
 
 
 

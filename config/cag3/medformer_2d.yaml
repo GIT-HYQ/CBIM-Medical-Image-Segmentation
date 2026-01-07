@@ -2,7 +2,7 @@
 # data_root: /home/share/clr/share/data/Coronary_mix_v4
 # data_root: /home/share/clr/share/data/cag_seg_mix_v5
 data_root: /home/share/clr/share/data/cag_seg_multi
-classes: 3
+classes: 4
 modality: CT
 
 
@@ -42,7 +42,7 @@ optimizer: adamw
 base_lr: 0.0005   
 betas: [0.9, 0.999]
 weight_decay: 0.05  # weight decay of SGD optimizer
-weight: [0.5, 1, 1]  # weitght of each class in the loss function
+weight: [0.5, 1, 1, 1]  # weitght of each class in the loss function
 rlt: 1 # relation between CE and Dice loss
 
 scale: 0.3  # scale for data augmentation

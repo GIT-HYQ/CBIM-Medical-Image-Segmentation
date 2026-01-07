@@ -14,6 +14,35 @@ import SimpleITK as sitk
 import cv2
 import os
 
+def scale_image_max(image):
+    # 将图像转换为浮点数格式
+    image_float = image.astype(np.float32)
+
+    # 找到像素值范围
+    min_val, max_val = np.min(image_float), np.max(image_float)
+
+    # 将像素值缩放到0-255之间
+    image_normalized = cv2.normalize(image_float, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+
+    # 返回归一化后的图像
+    return image_normalized
+
+def save_images2(img, msk, msk_pred, name, save_path):
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+    img = img.squeeze(0).permute(1,2,0).detach().cpu().numpy()
+    img = scale_image_max(img)
+    msk = msk.permute(1,2,0).detach().cpu().numpy()
+    msk = scale_image_max(msk)
+    msk_pred = msk_pred.permute(1,2,0).detach().cpu().numpy()
+    msk_pred = scale_image_max(msk_pred)
+    image_path = os.path.join(save_path, name.replace('.png', '_src.png'))
+    mask_path = os.path.join(save_path, name.replace('.png', '_mask.png'))
+    pred_path = os.path.join(save_path, name.replace('.png', '_pred.png'))
+    cv2.imwrite(image_path, img)
+    cv2.imwrite(mask_path, msk)
+    cv2.imwrite(pred_path, msk_pred)
+
 def save_images(img, msk, msk_pred, name, save_path):
     if not os.path.exists(save_path):
         os.makedirs(save_path)
@@ -75,7 +104,7 @@ def validation(net, dataloader, args, mode='Evaluating'):
             
             if args.save and mode == 'Testing':
                 save_path = args.save_path if args.save_path is not None else args.cp_dir + "/preds"
-                save_images(inputs, labels, label_pred, name[0], save_path)
+                save_images2(inputs, labels, label_pred, name[0], save_path)
 
             tmp_ASD_list, tmp_HD_list = calculate_distance(label_pred, labels, spacing[0], args.classes)
             # comment this for fast debugging (HD and ASD computation for large 3D images is slow)
@@ -177,7 +206,7 @@ def validation_without_calc(net, dataloader, args, mode='Evaluating'):
             
             if args.save and mode == 'Testing':
                 save_path = args.save_path if args.save_path is not None else args.cp_dir + "/preds"
-                save_images(inputs, labels, label_pred, name[0], save_path)
+                save_images2(inputs, labels, label_pred, name[0], save_path)
 
             tmp_ASD_list, tmp_HD_list = calculate_distance(label_pred, labels, spacing[0], args.classes)
             # comment this for fast debugging (HD and ASD computation for large 3D images is slow)
@@ -220,14 +249,14 @@ def validation_without_calc(net, dataloader, args, mode='Evaluating'):
     out_ACC = []
     out_SPE = []
     out_SEN = []
-    for cls in range(0, args.classes-1):
-        out_dice.append(np.array(dice_list[cls]).mean())
-        out_ASD.append(np.array(ASD_list[cls]).mean())
-        out_HD.append(np.array(HD_list[cls]).mean())
-        out_IoU.append(np.array(IoU_list[cls]).mean())
-        out_ACC.append(np.array(ACC_list[cls]).mean())
-        out_SPE.append(np.array(SPE_list[cls]).mean())
-        out_SEN.append(np.array(SEN_list[cls]).mean())
+    # for cls in range(0, args.classes-1):
+    #     out_dice.append(np.array(dice_list[cls]).mean())
+    #     out_ASD.append(np.array(ASD_list[cls]).mean())
+    #     out_HD.append(np.array(HD_list[cls]).mean())
+    #     out_IoU.append(np.array(IoU_list[cls]).mean())
+    #     out_ACC.append(np.array(ACC_list[cls]).mean())
+    #     out_SPE.append(np.array(SPE_list[cls]).mean())
+    #     out_SEN.append(np.array(SEN_list[cls]).mean())
 
     return np.array(out_dice), np.array(out_ASD), np.array(out_HD), np.array(out_IoU), np.array(out_ACC), np.array(out_SPE), np.array(out_SEN)
 
