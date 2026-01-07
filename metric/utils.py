@@ -127,6 +127,43 @@ def get_precision(SR, GT, threshold=0.5):
     # PC = float(torch.sum(TP, dim=0))/(float(torch.sum(TP+FP, dim=0)) + 1e-6)
     return PC
 
+def calculate_iou_multiclass(pred, target, C):
+    pred = pred.view(-1).long()
+    target = target.view(-1).long()
+    N = pred.shape[0]
+
+    ious = []
+    f1s = []
+    sensitivities = []
+    specificities = []
+
+    for c in range(1, C):
+        pred_c = (pred == c)
+        target_c = (target == c)
+        TP = (pred_c & target_c).sum().item()
+        FP = (pred_c & (~target_c)).sum().item()
+        FN = ((~pred_c) & target_c).sum().item()
+        TN = ((~pred_c) & (~target_c)).sum().item()
+
+        union = TP + FP + FN
+        iou = TP / union if union != 0 else 0
+        f1 = 2 * TP / (2 * TP + FP + FN) if (2 * TP + FP + FN) != 0 else 0
+        sensitivity = TP / (TP + FN) if (TP + FN) != 0 else 0
+        specificity = TN / (TN + FP) if (TN + FP) != 0 else 0
+
+        ious.append(iou)
+        f1s.append(f1)
+        sensitivities.append(sensitivity)
+        specificities.append(specificity)
+
+    miou = np.mean(ious)
+    f1_or_dsc = np.mean(f1s)
+    accuracy = (pred == target).sum().item() / N
+    specificity = np.mean(specificities)
+    sensitivity = np.mean(sensitivities)
+
+    return miou, f1_or_dsc, accuracy, specificity, sensitivity
+
 def calculate_iou(pred, target, C): 
     # pred and target are torch tensor
     target = target.long()
@@ -138,41 +175,16 @@ def calculate_iou(pred, target, C):
     pred_mask = pred.data.new(N, C).fill_(0)
     pred_mask.scatter_(1, pred, 1.) 
 
-    # intersection= pred_mask * target_mask
-    # summ = pred_mask + target_mask
-
-    # intersection = intersection.sum(0).type(torch.float32)
-    # summ = summ.sum(0).type(torch.float32)
-    
-    # summ += 1e-5 
-    # dice = 2 * intersection / summ
-
-
-    # smooth = 1e-5
-    # # intersection2 = (pred_mask & target_mask).sum()
-    # intersection2 = (pred_mask & target_mask).sum(dim=0)
-    # # union = (pred_mask | target_mask).sum()
-    # union = (pred_mask | target_mask).sum(dim=0)
-    # iou = (intersection2 + smooth) / (union + smooth)
-    # dice2 = (2 * iou) / (iou+1)
-
 
     pred_mask_ = torch.tensor(pred_mask)[:,1]
     target_mask_ = torch.tensor(target_mask)[:,1]
-    # print(pred_mask.size(), target_mask.size(), pred_mask_.size(), target_mask_.size(), pred_mask_.numel())
-    # SE = get_sensitivity(pred_mask_, target_mask_, threshold=0.5)
-    # PC = get_precision(pred_mask_, target_mask_, threshold=0.5)
-    # SP = get_specificity(pred_mask_, target_mask_, threshold=0.5)
-    # ACC = get_accuracy(pred_mask_, target_mask_, threshold=0.5)
-    # F1 = 2*SE*PC/(SE+PC + 1e-6)
-    # print(f"org dice:{dice}, \r\ndice2:{dice2}, \r\nintersection:{intersection}, \r\nintersection2:{intersection2}, \r\niou:{iou}, \r\nsumm:{summ}")
-    # print(f"SE:{SE} PC:{PC}, SP:{SP}, ACC:{ACC}, F1:{F1}", end='\r\n')
 
 
     if target_mask.is_cuda:
         target_mask_1 = np.array(target_mask_.cpu()).reshape(-1)
         pred_mask_1 = np.array(pred_mask_.cpu()).reshape(-1)
     confusion = confusion_matrix(target_mask_1, pred_mask_1)
+
     TN, FP, FN, TP = confusion[0,0], confusion[0,1], confusion[1,0], confusion[1,1] 
 
     accuracy = float(TN + TP) / float(np.sum(confusion)) if float(np.sum(confusion)) != 0 else 0
@@ -180,10 +192,6 @@ def calculate_iou(pred, target, C):
     specificity = float(TN) / float(TN + FP) if float(TN + FP) != 0 else 0
     f1_or_dsc = float(2 * TP) / float(2 * TP + FP + FN) if float(2 * TP + FP + FN) != 0 else 0
     miou = float(TP) / float(TP + FP + FN) if float(TP + FP + FN) != 0 else 0
-
-    # log_info = f'val epoch: , miou: {np.array(miou)}, f1_or_dsc: {f1_or_dsc}, accuracy: {accuracy}, \
-    #         specificity: {specificity}, sensitivity: {sensitivity}, confusion_matrix: {confusion}'
-    # print(log_info)
 
     return miou, f1_or_dsc, accuracy, specificity, sensitivity
 

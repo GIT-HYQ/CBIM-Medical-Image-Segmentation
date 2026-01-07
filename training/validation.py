@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributed as dist
 from inference.utils import get_inference
-from metric.utils import calculate_distance, calculate_dice, calculate_dice_split, calculate_iou
+from metric.utils import calculate_distance, calculate_dice, calculate_dice_split, calculate_iou, calculate_iou_multiclass
 import numpy as np
 from .utils import concat_all_gather, remove_wrap_arounds
 import logging
@@ -118,7 +118,10 @@ def validation(net, dataloader, args, mode='Evaluating'):
             # Use calculate_dice_split instead if got OOM, it will evaluate patch by patch to reduce gpu memory consumption.
             #dice, _, _ = calculate_dice(label_pred.view(-1, 1), labels.view(-1, 1), args.classes)
             # dice, _, _ = calculate_dice_split(label_pred.view(-1, 1), labels.view(-1, 1), args.classes)
-            iou, dice2, acc, spe, sen = calculate_iou(label_pred.view(-1, 1), labels.view(-1, 1), args.classes)
+            if args.classes == 2:   # 多分类引入了calculate_iou_multiclass，但为了保持之前2分类的逻辑，加了判断
+                iou, dice2, acc, spe, sen = calculate_iou(label_pred.view(-1, 1), labels.view(-1, 1), args.classes)
+            else:
+                iou, dice2, acc, spe, sen = calculate_iou_multiclass(label_pred.view(-1, 1), labels.view(-1, 1), args.classes)
             # print("dice:", dice)
             # print("dice2:", dice2)
 
