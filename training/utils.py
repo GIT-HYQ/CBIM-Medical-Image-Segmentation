@@ -14,7 +14,7 @@ def get_optimizer(args, net):
         return optim.AdamW(net.parameters(), lr=args.base_lr, betas=args.betas, weight_decay=args.weight_decay, eps=1e-5) # larger eps has better stability during AMP training
 
 
-def log_evaluation_result(writer, dice_list, ASD_list, HD_list, IoU_list, ACC_list, SPE_list, SEN_list, name, epoch, args):
+def log_evaluation_result(writer, dice_list, ASD_list, HD_list, IoU_list, ACC_list, SPE_list, SEN_list, cldice_list, name, epoch, args):
     C = dice_list.shape[0]
 
     writer.add_scalar('Dice/%s_AVG'%name, dice_list.mean(), epoch+1)
@@ -39,6 +39,9 @@ def log_evaluation_result(writer, dice_list, ASD_list, HD_list, IoU_list, ACC_li
     writer.add_scalar('SEN/%s_AVG'%name, SEN_list.mean(), epoch+1)
     for idx in range(C):
         writer.add_scalar('SEN/%s_SEN%d'%(name, idx+1), SEN_list[idx], epoch+1)
+    writer.add_scalar('clDice/%s_AVG'%name, cldice_list.mean(), epoch+1)
+    for idx in range(C):
+        writer.add_scalar('clDice/%s_clDice%d'%(name, idx+1), cldice_list[idx], epoch+1)
 
 
 def unwrap_model_checkpoint(net, ema_net, args):

@@ -5,3 +5,8 @@ from .dual_attention_unet import DAUNet
 from .transunet import VisionTransformer
 from .swin_unet import SwinUnet
 from .medformer import MedFormer
+from .medformer_v2 import MedFormerV2
+from .medformer_v3 import MedFormerV3
+from .medformer_v4 import MedFormerV4
+from .medformer_v5 import MedFormerV5
+from .medformer_v6 import MedFormerV6

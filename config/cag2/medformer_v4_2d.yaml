@@ -1,10 +1,8 @@
 #DATA
 # data_root: /home/share/clr/share/data/Coronary_mix_v4
 # data_root: /home/share/clr/share/data/cag_seg_mix_v5
-# data_root: /home/share/clr/share/data/cag_seg_multi
-data_root: /home/share/clr/share/data/cag_seg_3class
-# classes: 4
-classes: 3
+data_root: /home/share/clr/share/data/cag_seg_v6
+classes: 2
 modality: CT
 
 
@@ -17,7 +15,7 @@ conv_block: 'BasicBlock'
 conv_num: [2,0,0,0,  0,0,2,2]
 trans_num: [0,2,2,2,  2,2,0,0]
 num_heads: [1,4,8,16, 8,4,1,1] 
-map_size: 3
+map_size: 32
 expansion: 2
 fusion_depth: 2
 fusion_dim: 512
@@ -29,7 +27,7 @@ proj_drop: 0.
 
 
 #TRAIN
-epochs: 1000
+epochs: 600
 training_size: [512, 512]    # training crop size
 start_epoch: 0
 aux_loss: True
@@ -44,8 +42,7 @@ optimizer: adamw
 base_lr: 0.0005   
 betas: [0.9, 0.999]
 weight_decay: 0.05  # weight decay of SGD optimizer
-# weight: [0.5, 1, 1, 1]  # weitght of each class in the loss function
-weight: [0.5, 1, 1]  # weitght of each class in the loss function
+weight: [0.5, 1]  # weitght of each class in the loss function
 rlt: 1 # relation between CE and Dice loss
 
 scale: 0.3  # scale for data augmentation
