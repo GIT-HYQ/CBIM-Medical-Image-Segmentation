@@ -67,7 +67,7 @@ def train_net(net, args, ema_net=None, fold_idx=0):
     valset = get_dataset(args, mode='val', fold_idx=fold_idx)
     valLoader = data.DataLoader(valset, batch_size=1, pin_memory=True, shuffle=False, num_workers=2)
 
-    testset = get_dataset(args, mode='val', fold_idx=fold_idx)
+    testset = get_dataset(args, mode='test', fold_idx=fold_idx)
     testLoader = data.DataLoader(testset, batch_size=1, pin_memory=True, shuffle=False, num_workers=2)
     
     logging.info(f"Created Dataset and DataLoader")
@@ -301,6 +301,9 @@ def get_parser():
     parser.add_argument('--save', action='store_true', help='save images')
     parser.add_argument('--save_path', type=str, default=None, help='save images path')
     parser.add_argument('--test_root', type=str, default=None, help='testset root dir')
+    parser.add_argument('--guidance_l2', action='store_true', default=False, help='enable guidance level 2')
+    parser.add_argument('--guidance_l3', action='store_true', default=False, help='enable guidance level 3')
+
     
     args = parser.parse_args()
 

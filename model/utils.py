@@ -68,6 +68,24 @@ def get_model(args, pretrain=False):
             if pretrain:
                 raise ValueError('No pretrain model available')
             return MedFormerV6(args.in_chan, args.classes, args.base_chan, conv_block=args.conv_block, conv_num=args.conv_num, trans_num=args.trans_num, num_heads=args.num_heads, fusion_depth=args.fusion_depth, fusion_dim=args.fusion_dim, fusion_heads=args.fusion_heads, map_size=args.map_size, proj_type=args.proj_type, act=nn.ReLU, expansion=args.expansion, attn_drop=args.attn_drop, proj_drop=args.proj_drop, aux_loss=args.aux_loss)
+        
+        elif args.model in ['medformer_frangi']:
+            from .dim2 import MedFormerFrangi
+            if pretrain:
+                raise ValueError('No pretrain model available')
+            return MedFormerFrangi(args.in_chan, args.classes, args.base_chan, conv_block=args.conv_block, conv_num=args.conv_num, trans_num=args.trans_num, num_heads=args.num_heads, fusion_depth=args.fusion_depth, fusion_dim=args.fusion_dim, fusion_heads=args.fusion_heads, map_size=args.map_size, proj_type=args.proj_type, act=nn.ReLU, expansion=args.expansion, attn_drop=args.attn_drop, proj_drop=args.proj_drop, aux_loss=args.aux_loss)
+
+        elif args.model in ['medformer_frangi2']:
+            from .dim2 import MedFormerFrangi2
+            if pretrain:
+                raise ValueError('No pretrain model available')
+            return MedFormerFrangi2(args.in_chan, args.classes, args.base_chan, conv_block=args.conv_block, conv_num=args.conv_num, trans_num=args.trans_num, num_heads=args.num_heads, fusion_depth=args.fusion_depth, fusion_dim=args.fusion_dim, fusion_heads=args.fusion_heads, map_size=args.map_size, proj_type=args.proj_type, act=nn.ReLU, expansion=args.expansion, attn_drop=args.attn_drop, proj_drop=args.proj_drop, aux_loss=args.aux_loss)
+
+        elif args.model in ['medformer_hgpg']:
+            from .dim2 import MedFormerHGPG
+            if pretrain:
+                raise ValueError('No pretrain model available')
+            return MedFormerHGPG(args.in_chan, args.classes, args.base_chan, conv_block=args.conv_block, conv_num=args.conv_num, trans_num=args.trans_num, num_heads=args.num_heads, fusion_depth=args.fusion_depth, fusion_dim=args.fusion_dim, fusion_heads=args.fusion_heads, map_size=args.map_size, proj_type=args.proj_type, act=nn.ReLU, expansion=args.expansion, attn_drop=args.attn_drop, proj_drop=args.proj_drop, aux_loss=args.aux_loss, enable_guidance_lvl2=args.guidance_l2, enable_guidance_lvl3=args.guidance_l3)
 
         elif args.model == 'transunet':
             from .dim2 import VisionTransformer as ViT_seg
