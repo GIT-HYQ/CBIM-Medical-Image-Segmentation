@@ -24,6 +24,26 @@ def inference_whole_image(net, img, args=None):
     return F.softmax(pred, dim=1)
 
 
+def inference_whole_image_hgpg(net, img, args=None):
+    '''
+    img: torch tensor, B, C, H, W
+    return: prob (after softmax), B, classes, H, W
+
+    Use this function to inference if whole image can be put into GPU without memory issue
+    Better to be consistent with the training window size
+    '''
+    net.eval()
+    
+    with torch.no_grad():
+        pred = net(img)
+
+        if isinstance(pred, tuple) or isinstance(pred, list):
+            geometric_prior = pred[1]
+            pred = pred[0]            
+
+    return F.softmax(pred, dim=1), geometric_prior
+
+
 def inference_sliding_window(net, img, args):
     ''' 
     img: torch tensor, B, C, H, W

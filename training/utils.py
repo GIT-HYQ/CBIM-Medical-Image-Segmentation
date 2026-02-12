@@ -14,7 +14,7 @@ def get_optimizer(args, net):
         return optim.AdamW(net.parameters(), lr=args.base_lr, betas=args.betas, weight_decay=args.weight_decay, eps=1e-5) # larger eps has better stability during AMP training
 
 
-def log_evaluation_result(writer, dice_list, ASD_list, HD_list, IoU_list, ACC_list, SPE_list, SEN_list, cldice_list, name, epoch, args):
+def log_evaluation_result(writer, dice_list, ASD_list, HD_list, IoU_list, ACC_list, SPE_list, SEN_list, name, epoch, args):
     C = dice_list.shape[0]
 
     writer.add_scalar('Dice/%s_AVG'%name, dice_list.mean(), epoch+1)
@@ -39,10 +39,22 @@ def log_evaluation_result(writer, dice_list, ASD_list, HD_list, IoU_list, ACC_li
     writer.add_scalar('SEN/%s_AVG'%name, SEN_list.mean(), epoch+1)
     for idx in range(C):
         writer.add_scalar('SEN/%s_SEN%d'%(name, idx+1), SEN_list[idx], epoch+1)
-    writer.add_scalar('clDice/%s_AVG'%name, cldice_list.mean(), epoch+1)
-    for idx in range(C):
-        writer.add_scalar('clDice/%s_clDice%d'%(name, idx+1), cldice_list[idx], epoch+1)
 
+
+def log_evaluation_result_dict(writer, metrics_dict, name, epoch, args):
+    """
+    metrics_dict: 包含 Dice, ASD, HD, IoU, ACC, SPE, SEN, clDice 的字典
+    每个 value 是一个 shape 为 (C,) 的 numpy 数组
+    """
+    # 获取类别数量 (不含背景)
+    C = metrics_dict['Dice'].shape[0]
+
+    for key, values in metrics_dict.items():
+        # 记录平均值
+        writer.add_scalar(f'{key}/{name}_AVG', values.mean(), epoch + 1)
+        # 记录每个类别的独立值 (如果有多个类别)
+        for idx in range(C):
+            writer.add_scalar(f'{key}/{name}_{key}{idx+1}', values[idx], epoch + 1)
 
 def unwrap_model_checkpoint(net, ema_net, args):
     net_state_dict = net.module if args.distributed else net 
@@ -63,6 +75,13 @@ def filter_validation_results(dice_list, ASD_list, HD_list, args):
         dice_list, ASD_list, HD_list = dice_list[:-2], ASD_list[:-2], HD_list[:-2]
 
     return dice_list, ASD_list, HD_list
+
+def filter_validation_results_dict(perf, args):
+    if args.dataset == 'amos_mr':
+        # the validation set of amos_mr doesn't have the last two organs, so elimiate them
+        perf['Dice'], perf['ASD'], perf['HD'] = perf['Dice'][:-2], perf['ASD'][:-2], perf['HD'][:-2]
+
+    return perf
 
 def multistep_lr_scheduler_with_warmup(optimizer, init_lr, epoch, warmup_epoch, lr_decay_epoch, max_epoch, gamma=0.1):
 

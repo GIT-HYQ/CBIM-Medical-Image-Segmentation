@@ -14,13 +14,13 @@ from torch.utils import data
 from torch.utils.tensorboard import SummaryWriter
 
 from training.utils import update_ema_variables
-from training.losses import DiceLoss
-from training.validation import validation
+from training.losses import DiceLoss, CombinedGeometricLoss
+from training.validation2 import validation
 from training.utils import (
     exp_lr_scheduler_with_warmup, 
-    log_evaluation_result, 
+    log_evaluation_result_dict, 
     get_optimizer, 
-    filter_validation_results
+    filter_validation_results_dict
 )
 import yaml
 import argparse
@@ -48,6 +48,31 @@ from random import shuffle
 warnings.filterwarnings("ignore", category=UserWarning)
 from datetime import datetime
 
+
+def print_erformance_dict(perf):
+    """
+    格式化打印最佳性能字典
+    """
+    if perf is None:
+        logging.info("No best performance recorded yet.")
+        return
+
+    logging.info("\n" + "="*80)
+    logging.info(f"{'Metric':<15} | {'Mean Value':<15} | {'Class-wise Detail'}")
+    logging.info("-" * 80)
+
+    for metric, values in perf.items():
+        # values 是一个 shape 为 (C,) 的 numpy 数组
+        mean_val = values.mean()
+        # 将每个类别的得分转为字符串，方便展示
+        if len(values) > 1:
+            detail_str = ", ".join([f"C{i+1}: {v:.4f}" for i, v in enumerate(values)])
+        else:
+            detail_str = f"{values[0]:.4f}"
+            
+        logging.info(f"{metric:<15} | {mean_val:<15.4f} | {detail_str}")
+
+    logging.info("="*80 + "\n")
 
 def train_net(net, args, ema_net=None, fold_idx=0):
 
@@ -82,19 +107,15 @@ def train_net(net, args, ema_net=None, fold_idx=0):
         resume_load_optimizer_checkpoint(optimizer, args)
 
     criterion = nn.CrossEntropyLoss(weight=torch.tensor(args.weight).cuda().float())
-    criterion_dl = DiceLoss()
+    # criterion_dl = DiceLoss()
+    criterion_dl = CombinedGeometricLoss() # 增强连通性
     
     scaler = torch.cuda.amp.GradScaler() if args.amp else None
 
     ################################################################################
     # Start training
-    best_Dice = np.zeros(args.classes)
-    best_IoU = np.zeros(args.classes)
-    best_ACC = np.zeros(args.classes)
-    best_SPE = np.zeros(args.classes)
-    best_SEN = np.zeros(args.classes)
-    best_HD = np.ones(args.classes) * 1000
-    best_ASD = np.ones(args.classes) * 1000
+    best_perf = None  # 用于存储最佳模型发生时的所有指标字典
+    best_epoch = 0
 
     
     for epoch in range(args.start_epoch, args.epochs):
@@ -126,19 +147,18 @@ def train_net(net, args, ema_net=None, fold_idx=0):
                 'optimizer_state_dict': optimizer.state_dict(),
             }, f"{args.cp_dir}/fold_{fold_idx}_latest.pth")
 
-            dice_list_test, ASD_list_test, HD_list_test, IoU_list_test, ACC_list_test, SPE_list_test, SEN_list_test = validation(net_for_eval, valLoader, args, writer=writer, epoch=epoch+1)
-            dice_list_test, ASD_list_test, HD_list_test = filter_validation_results(dice_list_test, ASD_list_test, HD_list_test, args) # filter results for some dataset, e.g. amos_mr
-            log_evaluation_result(writer, dice_list_test, ASD_list_test, HD_list_test, IoU_list_test, ACC_list_test, SPE_list_test, SEN_list_test, 'test', epoch, args)
-            
-            if dice_list_test.mean() >= best_Dice.mean():
-                best_Dice = dice_list_test
-                best_HD = HD_list_test
-                best_ASD = ASD_list_test
-                best_IoU = IoU_list_test
-                best_ACC = ACC_list_test
-                best_SPE = SPE_list_test
-                best_SEN = SEN_list_test
+            perf = validation(net_for_eval, valLoader, args, mode='Evaluating', writer=writer, epoch=epoch+1)
+            perf = filter_validation_results_dict(perf, args) # filter results for some dataset, e.g. amos_mr
+            log_evaluation_result_dict(writer, perf, 'Val', epoch, args)
 
+            # 3. 综合评分判定最佳模型 (对于血管分割，Dice 和 clDice 同等重要)
+            current_Dice = perf['Dice'].mean()
+            # current_clDice = perf['clDice'].mean()
+            # current_score = (current_Dice + current_clDice) / 2
+            best_Dice = best_perf['Dice'].mean() if best_perf else 0
+            if current_Dice >= best_Dice:
+                best_perf = perf
+                best_epoch = epoch+1
                 # Save the checkpoint with best performance
                 torch.save({
                     'epoch': epoch+1,
@@ -147,9 +167,8 @@ def train_net(net, args, ema_net=None, fold_idx=0):
                     'optimizer_state_dict': optimizer.state_dict(),
                 }, f"{args.cp_dir}/fold_{fold_idx}_best.pth")
             
-            logging.info(f"Evaluation epoch:{epoch+1} Done")
-            logging.info(f"Dice: {dice_list_test.mean():.4f}/Best Dice: {best_Dice.mean():.4f}, Best IoU:{best_IoU.mean():.4f}, Best ACC:{best_ACC.mean():.4f}")
-            logging.info(f"Best SPE:{best_SPE.mean():.4f}, Best SEN:{best_SEN.mean():.4f}")
+            logging.info(f"Evaluation epoch:{epoch+1} Done best epoch:{best_epoch}")
+            print_erformance_dict(best_perf)
     
         writer.add_scalar('LR', exp_scheduler, epoch+1)
     
@@ -162,19 +181,13 @@ def train_net(net, args, ema_net=None, fold_idx=0):
         if args.ema:
             ema_net.load_state_dict(checkpoint['ema_model_state_dict'])
         net_for_eval = ema_net if args.ema else net 
-        # test_Dice, test_ASD, test_HD, test_IoU, test_ACC, test_SPE, test_SEN = validation(net_for_eval, testLoader, args, mode="Testing")
-        best_Dice, best_ASD, best_HD, best_IoU, best_ACC, best_SPE, best_SEN = validation(net_for_eval, testLoader, args, mode="Testing", epoch=epoch+1)
+        test_perf = validation(net_for_eval, testLoader, args, mode='Testing', writer=writer, epoch=epoch+1)
         best_epoch = checkpoint['epoch']
-        # logging.info(f"Testing epoch:{best_epoch} Done")
-        # logging.info(f"Test Dice: {test_Dice.mean():.4f}, Test IoU:{test_IoU.mean():.4f}, Test ACC:{test_ACC.mean():.4f}")
-        # logging.info(f"Test SPE:{test_SPE.mean():.4f}, Best SEN:{test_SEN.mean():.4f}")
 
-        logging.info(f"Test epoch:{best_epoch} Done")
-        logging.info(f"Best Dice: {best_Dice.mean():.4f}, Best IoU:{best_IoU.mean():.4f}, Best ACC:{best_ACC.mean():.4f}")
-        logging.info(f"Best SPE:{best_SPE.mean():.4f}, Best SEN:{best_SEN.mean():.4f}")
+        logging.info(f"Test best epoch:{best_epoch}")
+        print_erformance_dict(test_perf)
 
-    
-    return best_Dice, best_HD, best_ASD, best_IoU, best_ACC, best_SPE, best_SEN
+    return test_perf
 
 
 def train_epoch(trainLoader, net, ema_net, optimizer, epoch, writer, criterion, criterion_dl, scaler, args):
@@ -303,6 +316,7 @@ def get_parser():
     parser.add_argument('--test_root', type=str, default=None, help='testset root dir')
     parser.add_argument('--guidance_l2', action='store_true', default=False, help='enable guidance level 2')
     parser.add_argument('--guidance_l3', action='store_true', default=False, help='enable guidance level 3')
+    parser.add_argument('--gated_hgm', action='store_true', default=False, help='enable gated hgm')
 
     
     args = parser.parse_args()
@@ -378,8 +392,12 @@ if __name__ == '__main__':
         # torch.backends.cudnn.benchmark = False
         # torch.backends.cudnn.deterministic = True
         set_seed(args.reproduce_seed)
-   
-    Dice_list, HD_list, ASD_list, IoU_list, ACC_list, SPE_list, SEN_list = [], [], [], [], [], [], []
+
+    # 初始化存储所有 fold 结果的字典
+    all_folds_metrics = {
+        'Dice': [], 'clDice': [], 'HD': [], 'ASD': [], 
+        'IoU': [], 'ACC': [], 'SPE': [], 'SEN': []
+    }
 
     for fold_idx in range(args.k_fold):
         
@@ -399,104 +417,51 @@ if __name__ == '__main__':
         if args.ema:
             ema_net.cuda()
         logging.info(f"Created Model")
-        best_Dice, best_HD, best_ASD, best_IoU, best_ACC, best_SPE, best_SEN = train_net(net, args, ema_net, fold_idx=fold_idx)
+        test_perf = train_net(net, args, ema_net, fold_idx=fold_idx)
 
         logging.info(f"Training and evaluation on Fold {fold_idx} is done")
 
-        Dice_list.append(best_Dice)
-        HD_list.append(best_HD)
-        ASD_list.append(best_ASD)
-        IoU_list.append(best_IoU)
-        ACC_list.append(best_ACC)
-        SPE_list.append(best_SPE)
-        SEN_list.append(best_SEN)
+        # --- 核心修复：正确读取 test_perf 中的各项指标 ---
+        for key in all_folds_metrics.keys():
+            all_folds_metrics[key].append(test_perf[key])    
 
+    ############################################################################################
+    # 保存测试结果 (Test Summary)
+    ############################################################################################
     
+    summary_path = f"{args.cp_dir}/test_summary.txt"
+    with open(summary_path, 'w') as f:
+        f.write(f"Test Results ({args.k_fold} folds)\n")
+        f.write(f"Model: {args.model} | Dataset: {args.dataset}\n")
+        f.write("="*60 + "\n\n")
 
-    ############################################################################################3
-    # Save the cross validation results
-    total_Dice = np.vstack(Dice_list)
-    total_HD = np.vstack(HD_list)
-    total_ASD = np.vstack(ASD_list)
-    total_IoU = np.vstack(IoU_list)
-    total_ACC = np.vstack(ACC_list)
-    total_SPE = np.vstack(SPE_list)
-    total_SEN = np.vstack(SEN_list)
-    
+        np.set_printoptions(precision=4, suppress=True)
 
-    with open(f"{args.cp_dir}/cross_validation.txt",  'w') as f:
-        np.set_printoptions(precision=4, suppress=True) 
-        f.write('Dice\n')
-        for i in range(args.k_fold):
-            f.write(f"Fold {i}: {Dice_list[i]}\n")
-        f.write(f"Each Class Dice Avg: {np.mean(total_Dice, axis=0)}\n")
-        f.write(f"Each Class Dice Std: {np.std(total_Dice, axis=0)}\n")
-        f.write(f"All classes Dice Avg: {total_Dice.mean()}\n")
-        f.write(f"All classes Dice Std: {np.mean(total_Dice, axis=1).std()}\n")
+        # 遍历所有指标进行统一统计
+        for metric_name, data_list in all_folds_metrics.items():
+            # 将列表转换为 numpy 矩阵 [k_fold, classes-1]
+            total_data = np.vstack(data_list)
+            
+            f.write(f"--- {metric_name} ---\n")
+            
+            # 记录每一个 fold 的结果
+            for i in range(args.k_fold):
+                f.write(f"Fold {i}: {data_list[i]}\n")
+            
+            # 计算统计量
+            class_avg = np.mean(total_data, axis=0)
+            class_std = np.std(total_data, axis=0)
+            overall_avg = total_data.mean()
+            # 计算 Fold 间的波动（SCI论文常用：先求各fold均值，再求均值的标准差）
+            fold_wise_avg = np.mean(total_data, axis=1)
+            overall_std = fold_wise_avg.std()
 
-        f.write("\n")
+            f.write(f"Each Class {metric_name} Avg: {class_avg}\n")
+            f.write(f"Each Class {metric_name} Std: {class_std}\n")
+            f.write(f"All classes {metric_name} Avg: {overall_avg:.4f}\n")
+            f.write(f"All classes {metric_name} Std (across folds): {overall_std:.4f}\n")
+            f.write("\n")
 
-        f.write('Iou\n')
-        for i in range(args.k_fold):
-            f.write(f"Fold {i}: {IoU_list[i]}\n")
-        f.write(f"Each Class Iou Avg: {np.mean(total_IoU, axis=0)}\n")
-        f.write(f"Each Class Iou Std: {np.std(total_IoU, axis=0)}\n")
-        f.write(f"All classes Iou Avg: {total_IoU.mean()}\n")
-        f.write(f"All classes Iou Std: {np.mean(total_IoU, axis=1).std()}\n")
-
-        f.write("\n")
-
-        f.write('ACC\n')
-        for i in range(args.k_fold):
-            f.write(f"Fold {i}: {ACC_list[i]}\n")
-        f.write(f"Each Class ACC Avg: {np.mean(total_ACC, axis=0)}\n")
-        f.write(f"Each Class ACC Std: {np.std(total_ACC, axis=0)}\n")
-        f.write(f"All classes ACC Avg: {total_ACC.mean()}\n")
-        f.write(f"All classes ACC Std: {np.mean(total_ACC, axis=1).std()}\n")
-
-        f.write("\n")
-
-        f.write('SPE\n')
-        for i in range(args.k_fold):
-            f.write(f"Fold {i}: {SPE_list[i]}\n")
-        f.write(f"Each Class SPE Avg: {np.mean(total_SPE, axis=0)}\n")
-        f.write(f"Each Class SPE Std: {np.std(total_SPE, axis=0)}\n")
-        f.write(f"All classes SPE Avg: {total_SPE.mean()}\n")
-        f.write(f"All classes SPE Std: {np.mean(total_SPE, axis=1).std()}\n")
-
-        f.write("\n")
-    
-        f.write('SEN\n')
-        for i in range(args.k_fold):
-            f.write(f"Fold {i}: {SEN_list[i]}\n")
-        f.write(f"Each Class SEN Avg: {np.mean(total_SEN, axis=0)}\n")
-        f.write(f"Each Class SEN Std: {np.std(total_SEN, axis=0)}\n")
-        f.write(f"All classes SEN Avg: {total_SEN.mean()}\n")
-        f.write(f"All classes SEN Std: {np.mean(total_SEN, axis=1).std()}\n")
-
-        f.write("\n")
-
-        f.write("HD\n")
-        for i in range(args.k_fold):
-            f.write(f"Fold {i}: {HD_list[i]}\n")
-        f.write(f"Each Class HD Avg: {np.mean(total_HD, axis=0)}\n")
-        f.write(f"Each Class HD Std: {np.std(total_HD, axis=0)}\n")
-        f.write(f"All classes HD Avg: {total_HD.mean()}\n")
-        f.write(f"All classes HD Std: {np.mean(total_HD, axis=1).std()}\n")
-
-        f.write("\n")
-
-        f.write("ASD\n")
-        for i in range(args.k_fold):
-            f.write(f"Fold {i}: {ASD_list[i]}\n")
-        f.write(f"Each Class ASD Avg: {np.mean(total_ASD, axis=0)}\n")
-        f.write(f"Each Class ASD Std: {np.std(total_ASD, axis=0)}\n")
-        f.write(f"All classes ASD Avg: {total_ASD.mean()}\n")
-        f.write(f"All classes ASD Std: {np.mean(total_ASD, axis=1).std()}\n")
-
-
-
-
-    print(f'All {args.k_fold} folds done.')
+    print(f'All {args.k_fold} folds done. Results saved to {summary_path}')
 
     sys.exit(0)

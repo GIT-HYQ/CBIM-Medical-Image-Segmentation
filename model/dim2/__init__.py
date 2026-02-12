@@ -10,3 +10,6 @@ from .medformer_v3 import MedFormerV3
 from .medformer_v4 import MedFormerV4
 from .medformer_v5 import MedFormerV5
 from .medformer_v6 import MedFormerV6
+from .medformer_frangi import MedFormerFrangi
+from .medformer_frangi2 import MedFormerFrangi2
+from .medformer_hgpg import MedFormerHGPG

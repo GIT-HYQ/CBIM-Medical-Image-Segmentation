@@ -97,6 +97,85 @@ class FocalLoss(nn.Module):
 
         return loss
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class SoftSkeletonTopologyLoss(nn.Module):
+    """
+    Soft-clDice Loss: 拓扑感知损失函数
+    适用于管状结构（血管、道路、神经纤维）的细长分支提取。
+    通过形态学池化（Morphological Pooling）模拟骨架化过程。
+    """
+    def __init__(self, iter=3, smooth=1e-5, exclude_background=True):
+        super(SoftSkeletonTopologyLoss, self).__init__()
+        self.iter = iter
+        self.smooth = smooth
+        self.exclude_background = exclude_background
+
+    def soft_dilation(self, x):
+        return F.max_pool2d(x, kernel_size=3, stride=1, padding=1)
+
+    def soft_erosion(self, x):
+        return -F.max_pool2d(-x, kernel_size=3, stride=1, padding=1)
+
+    def get_soft_skeleton(self, x):
+        """
+        通过迭代腐蚀和膨胀的残差来提取软骨架。
+        """
+        for _ in range(self.iter):
+            erosion = self.soft_erosion(x)
+            dilation = self.soft_dilation(erosion)
+            # 提取结构残留：原始图像与开运算结果的差值
+            skeleton = F.relu(x - dilation)
+            x = erosion
+        return skeleton
+
+    def forward(self, preds, targets):
+        """
+        preds: 模型输出的 Logits [B, C, H, W]
+        targets: 标签索引 [B, 1, H, W]
+        """
+        # 1. 转换为概率空间
+        if preds.shape[1] > 1:
+            probs = F.softmax(preds, dim=1)[:, 1:2, :, :] # 取血管通道
+        else:
+            probs = torch.sigmoid(preds)
+            
+        targets = targets.float()
+
+        # 2. 提取预测图和真实标签的软骨架
+        skel_pred = self.get_soft_skeleton(probs)
+        skel_true = self.get_soft_skeleton(targets)
+
+        # 3. 计算 Tprec (Topological Precision) 和 Tsens (Topological Sensitivity)
+        # Tprec: 预测骨架在真实掩码上的覆盖率
+        tprec = (torch.sum(skel_pred * targets) + self.smooth) / (torch.sum(skel_pred) + self.smooth)
+        # Tsens: 真实骨架在预测掩码上的覆盖率
+        tsens = (torch.sum(skel_true * probs) + self.smooth) / (torch.sum(skel_true) + self.smooth)
+
+        # 4. 计算 clDice
+        cl_dice = 2.0 * (tprec * tsens) / (tprec + tsens + self.smooth)
+        
+        return 1.0 - cl_dice
+
+# --- 用于 SCI 论文展示的组合损失函数 ---
+class CombinedGeometricLoss(nn.Module):
+    def __init__(self, dice_weight=1.0, topo_weight=0.5, iter=3):
+        super().__init__()
+        self.dice_loss = DiceLoss() # 你原有的 DiceLoss
+        self.topo_loss = SoftSkeletonTopologyLoss(iter=iter)
+        self.dice_weight = dice_weight
+        self.topo_weight = topo_weight
+
+    def forward(self, preds, targets):
+        l_dice = self.dice_loss(preds, targets)
+        l_topo = self.topo_loss(preds, targets)
+        
+        # 建议动态平衡：前期靠 Dice 确定位置，后期靠 Topo 优化连通性
+        return self.dice_weight * l_dice + self.topo_weight * l_topo
+
+
 if __name__ == '__main__':
     
     DL = DiceLoss()

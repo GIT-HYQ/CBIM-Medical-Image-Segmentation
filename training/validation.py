@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributed as dist
 from inference.utils import get_inference
-from metric.utils import calculate_distance, calculate_dice, calculate_dice_split, calculate_iou, calculate_iou_multiclass
+from metric.utils import calculate_distance, calculate_cldice_metric, calculate_dice_split, calculate_iou, calculate_iou_multiclass
 import numpy as np
 from .utils import concat_all_gather, remove_wrap_arounds
 import logging
@@ -13,6 +13,7 @@ from tqdm import tqdm
 import SimpleITK as sitk
 import cv2
 import os
+import torchvision.utils as vutils
 
 def scale_image_max(image):
     # 将图像转换为浮点数格式
@@ -56,8 +57,38 @@ def save_images(img, msk, msk_pred, name, save_path):
     cv2.imwrite(mask_path, msk)
     cv2.imwrite(pred_path, msk_pred)
 
+def visualize_results(writer, step, image, gt, max_v, pred, model=None, phase='Val'):
+    """
+    image: 原图 [B, 1, H, W]
+    gt: 标签 [B, 1, H, W]
+    max_v: Frangi最大响应图 [B, 1, H, W]
+    pred: 模型预测概率图/掩码 [B, 1, H, W]
+    """
+    with torch.no_grad():
+        # 1. 原图归一化 (仅用于显示)
+        img_show = (image[0:1] - image[0:1].min()) / (image[0:1].max() - image[0:1].min() + 1e-8)
+        
+        # 2. 预测图处理 (绝对严谨逻辑)
+        if pred.shape[1] > 1:
+            # 多分类：取血管通道(1)，不重新归一化，保留原始置信度
+            pred_show = torch.softmax(pred, dim=1)[0:1, 1:2, :, :]
+        else:
+            # 二分类：Sigmoid，保留 [0, 1] 概率
+            pred_show = torch.sigmoid(pred[0:1])
 
-def validation(net, dataloader, args, mode='Evaluating'):
+        # 3. 血管先验 (HGPG 输入)
+        # max_v 本身在 [0, 1] 之间，直接取第一个样本
+        vessel_prior = max_v[0:1]
+
+        # 4. 拼接 (Image | GT | HGPG_Prior | Prediction)
+        # 注意：这里我们不给 pred_show 做 min-max，亮度越亮代表模型越确信
+        comparison = torch.cat([img_show, gt[0:1].float(), vessel_prior, pred_show], dim=3)
+
+        # 5. 输出到 TensorBoard
+        grid = vutils.make_grid(comparison, normalize=False)
+        writer.add_image(f'{phase}/Structural_Evaluation', grid, step)
+
+def validation(net, dataloader, args, mode='Evaluating', writer=None, epoch=0):
     
     net.eval()
 
@@ -83,14 +114,14 @@ def validation(net, dataloader, args, mode='Evaluating'):
 
     with torch.no_grad():
         iterator = tqdm(dataloader)
-        for (images, labels, spacing, name) in iterator:
+        for i, (images, labels, spacing, name) in enumerate(iterator):
             # spacing here is used for distance metrics calculation
             
             inputs, labels = images.float().cuda(), labels.cuda().to(torch.int8)
             
             if args.dimension == '2d':
                 inputs = inputs.permute(1, 0, 2, 3)
-            
+
             pred = inference(net, inputs, args)
 
             _, label_pred = torch.max(pred, dim=1)
@@ -105,6 +136,10 @@ def validation(net, dataloader, args, mode='Evaluating'):
             if args.save and mode == 'Testing':
                 save_path = args.save_path if args.save_path is not None else args.cp_dir + "/preds"
                 save_images2(inputs, labels, label_pred, name[0], save_path)
+            
+            if writer and args.model == 'medformer_hgpg' and i == 0:
+                max_v = net.geometric_analyzer(inputs)           
+                visualize_results(writer, epoch, image=images, gt=labels, max_v=max_v, pred=label_pred)
 
             tmp_ASD_list, tmp_HD_list = calculate_distance(label_pred, labels, spacing[0], args.classes)
             # comment this for fast debugging (HD and ASD computation for large 3D images is slow)

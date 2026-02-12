@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributed as dist
 from inference.utils import get_inference
-from metric.utils import calculate_distance, calculate_dice, calculate_dice_split, calculate_iou, calculate_iou_multiclass
+from metric.utils import calculate_distance, calculate_cldice_metric, calculate_dice_split, calculate_iou, calculate_iou_multiclass
 import numpy as np
 from .utils import concat_all_gather, remove_wrap_arounds
 import logging
@@ -13,36 +13,7 @@ from tqdm import tqdm
 import SimpleITK as sitk
 import cv2
 import os
-
-
-class SoftclDiceMetric(nn.Module):
-    def __init__(self, iter_=3, smooth=1e-5):
-        super(SoftclDiceMetric, self).__init__()
-        self.iter = iter_
-        self.smooth = smooth
-
-    def soft_skeletonize(self, x):
-        """ 利用最小池化模拟形态学腐蚀，提取软骨架 """
-        for _ in range(self.iter):
-            # 模拟腐蚀操作
-            min_pool = F.max_pool2d(-x, kernel_size=3, stride=1, padding=1)
-            x = torch.min(x, -min_pool)
-        return x
-
-    def forward(self, y_pred, y_true):
-        """
-        y_pred: 模型概率图 [B, 1, H, W]
-        y_true: 真实标签 [B, 1, H, W]
-        """
-        skel_pred = self.soft_skeletonize(y_pred)
-        skel_true = self.soft_skeletonize(y_true)
-
-        # 计算 T_prec 和 T_sens (clDice 的两个组成部分)
-        t_prec = (torch.sum(skel_pred * y_true) + self.smooth) / (torch.sum(skel_pred) + self.smooth)
-        t_sens = (torch.sum(skel_true * y_pred) + self.smooth) / (torch.sum(skel_true) + self.smooth)
-
-        cl_dice = 2. * t_prec * t_sens / (t_prec + t_sens)
-        return cl_dice
+import torchvision.utils as vutils
 
 def scale_image_max(image):
     # 将图像转换为浮点数格式
@@ -86,31 +57,63 @@ def save_images(img, msk, msk_pred, name, save_path):
     cv2.imwrite(mask_path, msk)
     cv2.imwrite(pred_path, msk_pred)
 
+def visualize_results(writer, step, image, gt, max_v, pred, model=None, phase='Val'):
+    """
+    image: 原图 [B, 1, H, W]
+    gt: 标签 [B, 1, H, W]
+    max_v: Frangi最大响应图 [B, 1, H, W]
+    pred: 模型预测概率图/掩码 [B, 1, H, W]
+    """
+    v_min = max_v.min().item()
+    v_max = max_v.max().item()
+    v_mean = max_v.mean().item()
+    
+    # 计算非零像素占比，判断是否有响应
+    # 这里的 1e-7 是一个极小的阈值
+    non_zero_ratio = (max_v > 1e-7).float().mean().item()
+    
+    logging.info(f"🔍 [Debug Prior] Epoch {step} | Max: {v_max:.8e} | Mean: {v_mean:.8e} | Min: {v_min:.8e} | Active Pixels: {non_zero_ratio:.2%}")
 
-def validation(net, dataloader, args, mode='Evaluating'):
+    # 如果发现 v_max 极其微小（比如小于 1e-5），在可视化前可以手动放大，方便观察
+    if v_max < 1e-4 and v_max > 0:
+        logging.warning(f"⚠️ Prior response is extremely weak. Applying 100x boost for visualization.")
+    
+    with torch.no_grad():
+        # 1. 原图归一化 (仅用于显示)
+        img_show = (image[0:1] - image[0:1].min()) / (image[0:1].max() - image[0:1].min() + 1e-8)
+        
+        # 2. 预测图处理 (绝对严谨逻辑)
+        if pred.shape[1] > 1:
+            # 多分类：取血管通道(1)，不重新归一化，保留原始置信度
+            pred_show = torch.softmax(pred, dim=1)[0:1, 1:2, :, :]
+        else:
+            # 二分类：Sigmoid，保留 [0, 1] 概率
+            pred_show = torch.sigmoid(pred[0:1])
+
+        # 3. 血管先验 (HGPG 输入)
+        # max_v 本身在 [0, 1] 之间，直接取第一个样本
+        vessel_prior = max_v[0:1]
+
+        # 4. 拼接 (Image | GT | HGPG_Prior | Prediction)
+        # 注意：这里我们不给 pred_show 做 min-max，亮度越亮代表模型越确信
+        comparison = torch.cat([img_show, gt[0:1].float(), vessel_prior, pred_show], dim=3)
+
+        # 5. 输出到 TensorBoard
+        grid = vutils.make_grid(comparison, normalize=False)
+        writer.add_image(f'{phase}/Structural_Evaluation', grid, step)
+
+def validation(net, dataloader, args, mode='Evaluating', writer=None, epoch=0):
     
     net.eval()
 
-    dice_list = []
-    ASD_list = []
-    HD_list = []
-    IoU_list = []
-    ACC_list = []
-    SPE_list = []
-    SEN_list = []
-    # --- [新增] ---
-    cldice_list = []
-    cldice_metric = SoftclDiceMetric(iter_=3).cuda()
-    # --------------
-    for i in range(args.classes-1): # background is not including in validation
-        dice_list.append([])
-        ASD_list.append([])
-        HD_list.append([])
-        IoU_list.append([])
-        ACC_list.append([])
-        SPE_list.append([])
-        SEN_list.append([])
-        cldice_list.append([]) # [新增]
+    # 使用字典管理所有指标列表
+    metrics_log = {
+        'Dice': [], 'ASD': [], 'HD': [], 'IoU': [],
+        'ACC': [], 'SPE': [], 'SEN': [], 'clDice': []
+    }
+    # 初始化每个类别的列表
+    for key in metrics_log.keys():
+        metrics_log[key] = [[] for _ in range(args.classes - 1)]
 
     inference = get_inference(args)
     
@@ -118,19 +121,25 @@ def validation(net, dataloader, args, mode='Evaluating'):
 
     with torch.no_grad():
         iterator = tqdm(dataloader)
-        for (images, labels, spacing, name) in iterator:
+        for i, (images, labels, spacing, name) in enumerate(iterator):
             # spacing here is used for distance metrics calculation
             
             inputs, labels = images.float().cuda(), labels.cuda().to(torch.int8)
             
             if args.dimension == '2d':
                 inputs = inputs.permute(1, 0, 2, 3)
-            
-            pred = inference(net, inputs, args)
 
-            # 1. 获取分割概率图 (用于 SoftclDice)
-            # 假设输出为 Logits，需经过 Softmax 或 Sigmoid
-            pred_prob = F.softmax(pred, dim=1)[:, 1:2, ...] # 取前景类概率
+            # 对于 medformer_hgpg，inference 现在返回 (prob, prior)
+            max_v = None
+            if args.model == 'medformer_hgpg':
+                pred, max_v = inference(net, inputs, args)
+            else:
+                pred = inference(net, inputs, args)
+                
+
+            if writer and args.model == 'medformer_hgpg' and i == 0:
+                # max_v = net.geometric_analyzer(inputs)           
+                visualize_results(writer, epoch, image=inputs, gt=labels, max_v=max_v, pred=pred)
 
             _, label_pred = torch.max(pred, dim=1)
             label_pred = label_pred.to(torch.int8)
@@ -161,51 +170,36 @@ def validation(net, dataloader, args, mode='Evaluating'):
                 iou, dice2, acc, spe, sen = calculate_iou(label_pred.view(-1, 1), labels.view(-1, 1), args.classes)
             else:
                 iou, dice2, acc, spe, sen = calculate_iou_multiclass(label_pred.view(-1, 1), labels.view(-1, 1), args.classes)
-            # print("dice:", dice)
-            # print("dice2:", dice2)
 
-            # exclude background
-            # dice = dice.cpu().numpy()[1:]
-            # print("dice:", dice)
-                
-            # 3. [核心新增] 计算 clDice
-            # 统一维度为 [B, 1, H, W]
-            cur_cldice = cldice_metric(pred_prob, labels.unsqueeze(1).float())
+            # --- 3. 新增 clDice 计算 ---
+            # 转为 Numpy 进行骨架化评估
+            np_pred = label_pred.cpu().numpy()
+            np_labels = labels.cpu().numpy()
+            # 这里的逻辑仅演示二分类(血管/背景)，如果是多分类需对各类别单独做 mask
+            tmp_clDice = calculate_cldice_metric(np_pred, np_labels)
 
             unique_cls = torch.unique(labels)
             for cls in range(0, args.classes-1):
                 if cls+1 in unique_cls: 
                     # in case some classes are missing in the GT
                     # only classes appear in the GT are used for evaluation
-                    ASD_list[cls].append(tmp_ASD_list[cls])
-                    HD_list[cls].append(tmp_HD_list[cls])
-                    # dice_list[cls].append(dice[cls])
-                    dice_list[cls].append(dice2)
-                    IoU_list[cls].append(iou)
-                    ACC_list[cls].append(acc)
-                    SPE_list[cls].append(spe)
-                    SEN_list[cls].append(sen)
-                    cldice_list[cls].append(cur_cldice.item()) # [新增]
+                    metrics_log['ASD'][cls].append(tmp_ASD_list[cls])
+                    metrics_log['HD'][cls].append(tmp_HD_list[cls])
+                    metrics_log['Dice'][cls].append(dice2)
+                    metrics_log['IoU'][cls].append(iou)
+                    metrics_log['ACC'][cls].append(acc)
+                    metrics_log['SPE'][cls].append(spe)
+                    metrics_log['SEN'][cls].append(sen)
+                    metrics_log['clDice'][cls].append(tmp_clDice)
 
-    out_dice = []
-    out_ASD = []
-    out_HD = []
-    out_IoU = []
-    out_ACC = []
-    out_SPE = []
-    out_SEN = []
-    out_cldice = [] # [新增]
-    for cls in range(0, args.classes-1):
-        out_dice.append(np.array(dice_list[cls]).mean())
-        out_ASD.append(np.array(ASD_list[cls]).mean())
-        out_HD.append(np.array(HD_list[cls]).mean())
-        out_IoU.append(np.array(IoU_list[cls]).mean())
-        out_ACC.append(np.array(ACC_list[cls]).mean())
-        out_SPE.append(np.array(SPE_list[cls]).mean())
-        out_SEN.append(np.array(SEN_list[cls]).mean())
-        out_cldice.append(np.array(cldice_list[cls]).mean()) # [新增]
+    # --- 聚合结果为 Dict ---
+    # 计算每个类别在所有 batch 上的平均值，再返回一个包含各指标数组的字典
+    performance_dict = {}
+    for key, value_list in metrics_log.items():
+        # 结果是 shape 为 (classes-1,) 的 numpy 数组
+        performance_dict[key] = np.array([np.array(cls_list).mean() for cls_list in value_list])
 
-    return np.array(out_dice), np.array(out_ASD), np.array(out_HD), np.array(out_IoU), np.array(out_ACC), np.array(out_SPE), np.array(out_SEN), np.array(out_cldice) # [新增]
+    return performance_dict
 
 
 def validation_without_calc(net, dataloader, args, mode='Evaluating'):
@@ -258,24 +252,9 @@ def validation_without_calc(net, dataloader, args, mode='Evaluating'):
                 save_images2(inputs, labels, label_pred, name[0], save_path)
 
             tmp_ASD_list, tmp_HD_list = calculate_distance(label_pred, labels, spacing[0], args.classes)
-            # comment this for fast debugging (HD and ASD computation for large 3D images is slow)
-            #tmp_ASD_list = np.zeros(args.classes-1)
-            #tmp_HD_list = np.zeros(args.classes-1)
 
             tmp_ASD_list =  np.clip(np.nan_to_num(tmp_ASD_list, nan=500), 0, 500)
             tmp_HD_list = np.clip(np.nan_to_num(tmp_HD_list, nan=500), 0, 500)
-        
-            # The dice evaluation is based on the whole image. If image size too big, might cause gpu OOM.
-            # Use calculate_dice_split instead if got OOM, it will evaluate patch by patch to reduce gpu memory consumption.
-            #dice, _, _ = calculate_dice(label_pred.view(-1, 1), labels.view(-1, 1), args.classes)
-            # dice, _, _ = calculate_dice_split(label_pred.view(-1, 1), labels.view(-1, 1), args.classes)
-            # iou, dice2, acc, spe, sen = calculate_iou(label_pred.view(-1, 1), labels.view(-1, 1), args.classes)
-            # print("dice:", dice)
-            # print("dice2:", dice2)
-
-            # exclude background
-            # dice = dice.cpu().numpy()[1:]
-            # print("dice:", dice)
 
             unique_cls = torch.unique(labels)
             for cls in range(0, args.classes-1):
@@ -284,12 +263,6 @@ def validation_without_calc(net, dataloader, args, mode='Evaluating'):
                     # only classes appear in the GT are used for evaluation
                     ASD_list[cls].append(tmp_ASD_list[cls])
                     HD_list[cls].append(tmp_HD_list[cls])
-                    # dice_list[cls].append(dice[cls])
-                    # dice_list[cls].append(dice2)
-                    # IoU_list[cls].append(iou)
-                    # ACC_list[cls].append(acc)
-                    # SPE_list[cls].append(spe)
-                    # SEN_list[cls].append(sen)
 
     out_dice = []
     out_ASD = []
@@ -298,14 +271,6 @@ def validation_without_calc(net, dataloader, args, mode='Evaluating'):
     out_ACC = []
     out_SPE = []
     out_SEN = []
-    # for cls in range(0, args.classes-1):
-    #     out_dice.append(np.array(dice_list[cls]).mean())
-    #     out_ASD.append(np.array(ASD_list[cls]).mean())
-    #     out_HD.append(np.array(HD_list[cls]).mean())
-    #     out_IoU.append(np.array(IoU_list[cls]).mean())
-    #     out_ACC.append(np.array(ACC_list[cls]).mean())
-    #     out_SPE.append(np.array(SPE_list[cls]).mean())
-    #     out_SEN.append(np.array(SEN_list[cls]).mean())
 
     return np.array(out_dice), np.array(out_ASD), np.array(out_HD), np.array(out_IoU), np.array(out_ACC), np.array(out_SPE), np.array(out_SEN)
 

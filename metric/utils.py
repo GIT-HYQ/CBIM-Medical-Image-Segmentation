@@ -195,3 +195,32 @@ def calculate_iou(pred, target, C):
 
     return miou, f1_or_dsc, accuracy, specificity, sensitivity
 
+from skimage.morphology import skeletonize
+
+def calculate_cldice_metric(pred, target):
+    """
+    计算硬核 clDice 指标
+    pred, target: 二值化后的 Numpy 数组 [H, W] 或 [D, H, W], 值为 0 或 1
+    """
+    # 转换为布尔型并确保是单通道
+    pred = pred.astype(bool)
+    target = target.astype(bool)
+    
+    # 提取骨架 (Skeletonization)
+    if pred.sum() == 0:
+        p_skel = np.zeros_like(pred)
+    else:
+        p_skel = skeletonize(pred)
+        
+    if target.sum() == 0:
+        t_skel = np.zeros_like(target)
+    else:
+        t_skel = skeletonize(target)
+    
+    # 计算 Tprec (Topological Precision): 预测骨架落在真实掩码内的比例
+    tprec = np.sum(p_skel * target) / (np.sum(p_skel) + 1e-6)
+    # 计算 Tsens (Topological Sensitivity): 真实骨架落在预测掩码内的比例
+    tsens = np.sum(t_skel * pred) / (np.sum(t_skel) + 1e-6)
+    
+    cldice = 2.0 * (tprec * tsens) / (tprec + tsens + 1e-6)
+    return cldice

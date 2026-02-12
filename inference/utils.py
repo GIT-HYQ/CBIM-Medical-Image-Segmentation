@@ -7,8 +7,12 @@ def get_inference(args):
             from .inference2d import inference_sliding_window
             return inference_sliding_window
         else:
-            from .inference2d import inference_whole_image
-            return inference_whole_image
+            if args.model == 'medformer_hgpg':
+                from .inference2d import inference_whole_image_hgpg
+                return inference_whole_image_hgpg
+            else:
+                from .inference2d import inference_whole_image
+                return inference_whole_image
 
     elif args.dimension == '3d':
         if args.sliding_window:
