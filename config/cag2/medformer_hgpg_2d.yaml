@@ -58,7 +58,7 @@ print_freq: 50
 #VALIDATION
 ema: True
 ema_alpha: 0.99
-val_freq: 1 # evaluate every val_freq epochs
+val_freq: 10 # evaluate every val_freq epochs
 
 #INFERENCE
 sliding_window: False
