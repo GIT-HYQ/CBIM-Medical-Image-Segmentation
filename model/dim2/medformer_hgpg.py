@@ -14,6 +14,7 @@ import math
 
 from .utils import get_block
 from .medformer_utils import down_block, up_block, inconv, SemanticMapFusion
+from .FrangiFilter2d import FrangiFilter2d
 
 # =========================================================================
 # Module: GPU-Accelerated Frangi Spectral Filter (FSF)
@@ -80,6 +81,196 @@ class FrangiSpectralFilter(nn.Module):
         return integrated_prior
 
 
+class FrangiSpectralFilter2(nn.Module):
+    def __init__(self, sigmas=(1, 2, 10), beta=0.5, c=15, black_white=True):
+        super().__init__()
+        self.sigmas = sorted(sigmas)
+        self.beta = 2 * (beta ** 2)
+        self.c = 2 * (c ** 2)
+        self.black_white = black_white
+        
+        # Pre-compute and register Hessian kernels (修正归一化系数)
+        for sigma in self.sigmas:
+            s_round = int(math.ceil(3 * sigma))
+            r = torch.arange(-s_round, s_round + 1, dtype=torch.float32)
+            y, x = torch.meshgrid(r, r, indexing='ij')
+            
+            # 修正1: 使用与原始代码一致的归一化系数
+            gauss_base = torch.exp(-(x**2 + y**2) / (2 * sigma**2))
+            dxx = (1/(2*math.pi*sigma**4)) * (x**2/sigma**2 - 1) * gauss_base
+            dxy = (1/(2*math.pi*sigma**6)) * (x * y) * gauss_base
+            dyy = (1/(2*math.pi*sigma**4)) * (y**2/sigma**2 - 1) * gauss_base
+            
+            kernel = torch.stack([dxx, dxy, dyy], dim=0).unsqueeze(1)
+            self.register_buffer(f'kernel_sigma_{sigma}', kernel.float())
+
+    def _eigen_analysis(self, dxx, dxy, dyy):
+        """Perform eigen-decomposition of the Hessian matrix."""
+        tmp = torch.sqrt((dxx - dyy)**2 + 4 * dxy**2)
+        mu1 = 0.5 * (dxx + dyy + tmp)
+        mu2 = 0.5 * (dxx + dyy - tmp)
+        
+        # 修正2: 按绝对值大小排序 (|λ1| < |λ2|)
+        check = torch.abs(mu1) > torch.abs(mu2)
+        lambda1 = torch.where(check, mu2, mu1)
+        lambda2 = torch.where(check, mu1, mu2)
+        return lambda1, lambda2
+
+    def forward(self, x):
+        vesselness_scales = []
+        for sigma in self.sigmas:
+            kernel = getattr(self, f'kernel_sigma_{sigma}')
+            padding = kernel.shape[-1] // 2
+            h_out = F.conv2d(x, kernel, padding=padding)
+            
+            # 修正3: 卷积后的结果已经包含尺度归一化,只需要额外的sigma^2倍数
+            dxx = h_out[:, 0:1] * (sigma**2)
+            dxy = h_out[:, 1:2] * (sigma**2)
+            dyy = h_out[:, 2:3] * (sigma**2)
+            
+            l1, l2 = self._eigen_analysis(dxx, dxy, dyy)
+            
+            # 修正4: 使用与原始代码一致的epsilon处理
+            l1 = torch.where(l1 == 0, torch.finfo(torch.float32).eps, l1)
+            
+            rb = (l2 / l1)**2
+            s2 = l1**2 + l2**2
+            v = torch.exp(-rb / self.beta) * (1 - torch.exp(-s2 / self.c))
+            
+            # 修正5: 保持与原始代码一致的前景约束逻辑
+            if self.black_white:
+                v = torch.where(l1 < 0, v, torch.zeros_like(v))
+            else:
+                v = torch.where(l1 > 0, v, torch.zeros_like(v))
+            
+            vesselness_scales.append(v)
+            
+        # Max-pooling across scales
+        integrated_prior, _ = torch.max(torch.cat(vesselness_scales, dim=1), dim=1, keepdim=True)
+        return integrated_prior
+
+
+# =========================================================================
+# Module: GPU-Accelerated Frangi Spectral Filter (FSF) - IMPROVED
+# Description: Extracts multi-scale tubular geometric priors via Hessian 
+#              eigenanalysis with adaptive normalization and enhancement.
+# =========================================================================
+class FrangiSpectralFilter3(nn.Module):
+    def __init__(self, sigmas=(1, 2, 4), beta=0.5, c=15, black_white=True, 
+                 normalize=True, enhance_contrast=False):
+        """
+        Args:
+            sigmas: Multi-scale vessel width parameters (in pixels)
+            beta: Sensitivity to blob-like structures (default: 0.5)
+            c: Background noise suppression (default: 15)
+            black_white: True for bright vessels on dark background, False for dark vessels
+            normalize: Enable min-max normalization to [0, 1]
+            enhance_contrast: Apply gamma correction for better visualization (only affects output)
+        """
+        super().__init__()
+        self.sigmas = sorted(sigmas)
+        self.beta = 2 * (beta ** 2)
+        self.c = 2 * (c ** 2)
+        self.black_white = black_white
+        self.normalize = normalize
+        self.enhance_contrast = enhance_contrast
+        
+        # Pre-compute and register Hessian kernels for computational efficiency
+        for sigma in self.sigmas:
+            s_round = int(math.ceil(3 * sigma))
+            r = torch.arange(-s_round, s_round + 1, dtype=torch.float32)
+            y, x = torch.meshgrid(r, r, indexing='ij')
+            
+            # Gaussian-based second derivatives
+            sigma_sq = sigma**2
+            gauss = torch.exp(-(x**2 + y**2) / (2 * sigma_sq))
+            
+            # Second-order derivatives of Gaussian
+            dxx = (1 / (2 * math.pi * sigma_sq**2)) * (x**2 / sigma_sq - 1) * gauss
+            dxy = (1 / (2 * math.pi * sigma_sq**3)) * (x * y) * gauss
+            dyy = (1 / (2 * math.pi * sigma_sq**2)) * (y**2 / sigma_sq - 1) * gauss
+            
+            kernel = torch.stack([dxx, dxy, dyy], dim=0).unsqueeze(1)
+            self.register_buffer(f'kernel_sigma_{sigma}', kernel.float())
+
+    def _eigen_analysis(self, dxx, dxy, dyy):
+        """
+        Perform eigen-decomposition of the 2D Hessian matrix.
+        Returns eigenvalues sorted by absolute magnitude: |λ1| <= |λ2|
+        """
+        # Analytical solution for 2x2 symmetric matrix
+        tmp = torch.sqrt((dxx - dyy)**2 + 4 * dxy**2)
+        mu1 = 0.5 * (dxx + dyy + tmp)
+        mu2 = 0.5 * (dxx + dyy - tmp)
+        
+        # Sort by absolute value: |λ1| < |λ2|
+        check = torch.abs(mu1) > torch.abs(mu2)
+        lambda1 = torch.where(check, mu2, mu1)
+        lambda2 = torch.where(check, mu1, mu2)
+        
+        return lambda1, lambda2
+
+    def forward(self, x):
+        """
+        Args:
+            x: Input image [B, 1, H, W], normalized to [0, 1]
+        
+        Returns:
+            integrated_prior: Vessel probability map [B, 1, H, W]
+        """
+        vesselness_scales = []
+        
+        for sigma in self.sigmas:
+            # Convolve with Hessian kernels
+            kernel = getattr(self, f'kernel_sigma_{sigma}')
+            padding = kernel.shape[-1] // 2
+            h_out = F.conv2d(x, kernel, padding=padding)
+            
+            # Extract scale-normalized derivatives
+            dxx = h_out[:, 0:1] * (sigma**2)
+            dxy = h_out[:, 1:2] * (sigma**2)
+            dyy = h_out[:, 2:3] * (sigma**2)
+            
+            # Eigen-decomposition
+            l1, l2 = self._eigen_analysis(dxx, dxy, dyy)
+            
+            # Avoid division by zero
+            l1 = torch.where(l1 == 0, torch.tensor(1e-10, device=x.device, dtype=x.dtype), l1)
+            
+            # Frangi vesselness measures
+            rb = (l2 / l1)**2  # Blob-likeness measure
+            s2 = l1**2 + l2**2  # Structure magnitude
+            
+            # Vesselness response
+            v = torch.exp(-rb / self.beta) * (1 - torch.exp(-s2 / self.c))
+            
+            # Apply foreground constraint (λ2 < 0 for bright vessels)
+            v = torch.where(l2 < 0 if self.black_white else l2 > 0, 
+                          v, torch.zeros_like(v))
+            
+            vesselness_scales.append(v)
+        
+        # Max-pooling across scales to derive the Integrated Geometric Prior (IGP)
+        integrated_prior, _ = torch.max(torch.cat(vesselness_scales, dim=1), 
+                                       dim=1, keepdim=True)
+        
+        # Normalization for stable gradient flow
+        if self.normalize:
+            prior_min = integrated_prior.min()
+            prior_max = integrated_prior.max()
+            
+            if prior_max > prior_min:
+                # Min-max normalization to [0, 1]
+                integrated_prior = (integrated_prior - prior_min) / (prior_max - prior_min + 1e-8)
+                
+                # Optional: Gamma correction for contrast enhancement
+                if self.enhance_contrast:
+                    gamma = 0.7  # <1 enhances low-intensity details
+                    integrated_prior = torch.pow(integrated_prior, gamma)
+        
+        return integrated_prior
+
+
 class GatedModulationModule(nn.Module):
     def __init__(self, in_channels):
         super().__init__()
@@ -98,6 +289,52 @@ class GatedModulationModule(nn.Module):
 
 
 # =========================================================================
+# Gated Modulation Module for Hierarchical Guidance
+# =========================================================================
+class GatedModulationModule2(nn.Module):
+    def __init__(self, in_channels, use_learnable_scale=True):
+        """
+        Args:
+            in_channels: number of feature channels
+            use_learnable_scale: whether to use learnable scaling factor
+        """
+        super().__init__()
+        self.use_learnable_scale = use_learnable_scale
+        
+        # Transform geometric prior to channel-wise gates
+        self.conv = nn.Sequential(
+            nn.Conv2d(1, in_channels, kernel_size=1, bias=False),
+            nn.BatchNorm2d(in_channels),
+            nn.Sigmoid()
+        )
+        
+        # Learnable scaling factor to balance prior strength
+        if use_learnable_scale:
+            self.scale = nn.Parameter(torch.ones(1))
+        else:
+            self.scale = 1.0
+
+    def forward(self, x, prior):
+        """
+        Args:
+            x: feature maps [B, C, H, W]
+            prior: geometric prior map [B, 1, H, W], normalized to [0, 1]
+        Returns:
+            modulated features [B, C, H, W]
+        """
+        # Generate channel-wise attention gates
+        gate = self.conv(prior)
+        
+        # Apply learnable scaling
+        if self.use_learnable_scale:
+            gate = gate * self.scale
+        
+        # Residual gating: x * (1 + gate)
+        # This ensures gradient flow even when gate → 0
+        return x * (1 + gate)
+
+
+# =========================================================================
 # MedFormer with Hierarchical Geometric Prior Guidance (HGPG)
 # =========================================================================
 class MedFormerHGPG(nn.Module):
@@ -110,7 +347,8 @@ class MedFormerHGPG(nn.Module):
         super().__init__()
         
         # Geometry Analysis Engine
-        self.geometric_analyzer = FrangiSpectralFilter(sigmas=(1, 2, 4))
+        # self.geometric_analyzer = FrangiSpectralFilter3(sigmas=(1, 2, 4))
+        self.geometric_analyzer = FrangiFilter2d()
         self.enable_guidance_lvl2 = enable_guidance_lvl2
         self.enable_guidance_lvl3 = enable_guidance_lvl3
         self.gated_hgm = gated_hgm
@@ -149,7 +387,7 @@ class MedFormerHGPG(nn.Module):
         # Guidance at Level 2 (Mid-level representation)
         if self.enable_guidance_lvl2:
             if self.gated_hgm:
-                self.hgm_lvl2 = GatedModulationModule(chan_lvl2)
+                self.hgm_lvl2 = GatedModulationModule2(chan_lvl2, use_learnable_scale=True)
             else:
                 self.hgm_lvl2 = nn.Sequential(
                     nn.Conv2d(1, chan_lvl2, kernel_size=1),
@@ -160,7 +398,7 @@ class MedFormerHGPG(nn.Module):
         # Guidance at Level 3 (High-level semantic representation)
         if self.enable_guidance_lvl3:
             if self.gated_hgm:
-                self.hgm_lvl3 = GatedModulationModule(chan_lvl3)
+                self.hgm_lvl3 = GatedModulationModule2(chan_lvl3, use_learnable_scale=True)
             else:
                 self.hgm_lvl3 = nn.Sequential(
                     nn.Conv2d(1, chan_lvl3, kernel_size=1),

@@ -99,12 +99,12 @@ class CAGDataset2(Dataset):
             tensor_img = tensor_img.unsqueeze(0)
             tensor_lab = tensor_lab.unsqueeze(0)
           
-            # Gaussian Noise
-            tensor_img = augmentation.gaussian_noise(tensor_img, std=self.args.gaussian_noise_std)
-            # Additive brightness
-            tensor_img = augmentation.brightness_additive(tensor_img, std=self.args.additive_brightness_std)
-            # gamma
-            tensor_img = augmentation.gamma(tensor_img, gamma_range=self.args.gamma_range, retain_stats=True)
+            # # Gaussian Noise
+            # tensor_img = augmentation.gaussian_noise(tensor_img, std=self.args.gaussian_noise_std)
+            # # Additive brightness
+            # tensor_img = augmentation.brightness_additive(tensor_img, std=self.args.additive_brightness_std)
+            # # gamma
+            # tensor_img = augmentation.gamma(tensor_img, gamma_range=self.args.gamma_range, retain_stats=True)
 
             tensor_img, tensor_lab = augmentation.random_scale_rotate_translate_2d(tensor_img, tensor_lab, self.args.scale, self.args.rotate, self.args.translate)
             tensor_img, tensor_lab = augmentation.crop_2d(tensor_img, tensor_lab, self.args.training_size, mode='random')
