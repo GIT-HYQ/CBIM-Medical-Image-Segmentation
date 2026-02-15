@@ -13,3 +13,4 @@ from .medformer_v6 import MedFormerV6
 from .medformer_frangi import MedFormerFrangi
 from .medformer_frangi2 import MedFormerFrangi2
 from .medformer_hgpg import MedFormerHGPG
+from .medformer_hgpg_graph import MedFormerHGPG_Graph

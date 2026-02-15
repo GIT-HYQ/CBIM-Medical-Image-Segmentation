@@ -92,6 +92,17 @@ def get_model(args, pretrain=False):
                 map_size=args.map_size, proj_type=args.proj_type, act=nn.ReLU, expansion=args.expansion, 
                 attn_drop=args.attn_drop, proj_drop=args.proj_drop, aux_loss=args.aux_loss, 
                 enable_guidance_lvl2=args.guidance_l2, enable_guidance_lvl3=args.guidance_l3, gated_hgm=args.gated_hgm)
+        elif args.model in ['medformer_hgpg_graph']:
+            from .dim2 import MedFormerHGPG_Graph
+            if pretrain:
+                raise ValueError('No pretrain model available')
+            return MedFormerHGPG_Graph(
+                args.in_chan, args.classes, args.base_chan, conv_block=args.conv_block, 
+                conv_num=args.conv_num, trans_num=args.trans_num, num_heads=args.num_heads, 
+                fusion_depth=args.fusion_depth, fusion_dim=args.fusion_dim, fusion_heads=args.fusion_heads, 
+                map_size=args.map_size, proj_type=args.proj_type, act=nn.ReLU, expansion=args.expansion, 
+                attn_drop=args.attn_drop, proj_drop=args.proj_drop, aux_loss=args.aux_loss, 
+                enable_guidance_lvl2=args.guidance_l2, enable_guidance_lvl3=args.guidance_l3, gated_hgm=args.gated_hgm)
 
         elif args.model == 'transunet':
             from .dim2 import VisionTransformer as ViT_seg

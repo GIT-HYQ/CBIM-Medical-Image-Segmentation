@@ -130,14 +130,15 @@ def validation(net, dataloader, args, mode='Evaluating', writer=None, epoch=0):
                 inputs = inputs.permute(1, 0, 2, 3)
 
             # 对于 medformer_hgpg，inference 现在返回 (prob, prior)
+            max_v_vis = args.model == 'medformer_hgpg' or args.model == 'medformer_hgpg_graph'
             max_v = None
-            if args.model == 'medformer_hgpg':
+            if max_v_vis:
                 pred, max_v = inference(net, inputs, args)
             else:
                 pred = inference(net, inputs, args)
                 
 
-            if writer and args.model == 'medformer_hgpg' and i == 0:
+            if writer and max_v_vis and i == 0:
                 # max_v = net.geometric_analyzer(inputs)           
                 visualize_results(writer, epoch, image=inputs, gt=labels, max_v=max_v, pred=pred)
 
