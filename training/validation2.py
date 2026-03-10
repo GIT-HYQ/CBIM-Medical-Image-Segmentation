@@ -203,25 +203,18 @@ def validation(net, dataloader, args, mode='Evaluating', writer=None, epoch=0):
     return performance_dict
 
 
-def validation_without_calc(net, dataloader, args, mode='Evaluating'):
+def validation_without_calc(net, dataloader, args, mode='Evaluating', writer=None, epoch=0):
     
     net.eval()
 
-    dice_list = []
-    ASD_list = []
-    HD_list = []
-    IoU_list = []
-    ACC_list = []
-    SPE_list = []
-    SEN_list = []
-    for i in range(args.classes-1): # background is not including in validation
-        dice_list.append([])
-        ASD_list.append([])
-        HD_list.append([])
-        IoU_list.append([])
-        ACC_list.append([])
-        SPE_list.append([])
-        SEN_list.append([])
+    # 使用字典管理所有指标列表
+    metrics_log = {
+        'Dice': [], 'ASD': [], 'HD': [], 'IoU': [],
+        'ACC': [], 'SPE': [], 'SEN': [], 'clDice': []
+    }
+    # 初始化每个类别的列表
+    for key in metrics_log.keys():
+        metrics_log[key] = [[] for _ in range(args.classes - 1)]
 
     inference = get_inference(args)
     
@@ -229,15 +222,26 @@ def validation_without_calc(net, dataloader, args, mode='Evaluating'):
 
     with torch.no_grad():
         iterator = tqdm(dataloader)
-        for (images, labels, spacing, name) in iterator:
+        for i, (images, labels, spacing, name) in enumerate(iterator):
             # spacing here is used for distance metrics calculation
             
             inputs, labels = images.float().cuda(), labels.cuda().to(torch.int8)
             
             if args.dimension == '2d':
                 inputs = inputs.permute(1, 0, 2, 3)
-            
-            pred = inference(net, inputs, args)
+
+            # 对于 medformer_hgpg，inference 现在返回 (prob, prior)
+            max_v_vis = args.model == 'medformer_hgpg' or args.model == 'medformer_hgpg_graph'
+            max_v = None
+            if max_v_vis:
+                pred, max_v = inference(net, inputs, args)
+            else:
+                pred = inference(net, inputs, args)
+                
+
+            if writer and max_v_vis and i == 0:
+                # max_v = net.geometric_analyzer(inputs)           
+                visualize_results(writer, epoch, image=inputs, gt=labels, max_v=max_v, pred=pred)
 
             _, label_pred = torch.max(pred, dim=1)
             label_pred = label_pred.to(torch.int8)
@@ -253,27 +257,51 @@ def validation_without_calc(net, dataloader, args, mode='Evaluating'):
                 save_images2(inputs, labels, label_pred, name[0], save_path)
 
             tmp_ASD_list, tmp_HD_list = calculate_distance(label_pred, labels, spacing[0], args.classes)
+            # comment this for fast debugging (HD and ASD computation for large 3D images is slow)
+            #tmp_ASD_list = np.zeros(args.classes-1)
+            #tmp_HD_list = np.zeros(args.classes-1)
 
             tmp_ASD_list =  np.clip(np.nan_to_num(tmp_ASD_list, nan=500), 0, 500)
             tmp_HD_list = np.clip(np.nan_to_num(tmp_HD_list, nan=500), 0, 500)
+        
+            # The dice evaluation is based on the whole image. If image size too big, might cause gpu OOM.
+            # Use calculate_dice_split instead if got OOM, it will evaluate patch by patch to reduce gpu memory consumption.
+            #dice, _, _ = calculate_dice(label_pred.view(-1, 1), labels.view(-1, 1), args.classes)
+            # dice, _, _ = calculate_dice_split(label_pred.view(-1, 1), labels.view(-1, 1), args.classes)
+            # if args.classes == 2:   # 多分类引入了calculate_iou_multiclass，但为了保持之前2分类的逻辑，加了判断
+            #     iou, dice2, acc, spe, sen = calculate_iou(label_pred.view(-1, 1), labels.view(-1, 1), args.classes)
+            # else:
+            #     iou, dice2, acc, spe, sen = calculate_iou_multiclass(label_pred.view(-1, 1), labels.view(-1, 1), args.classes)
+
+            # --- 3. 新增 clDice 计算 ---
+            # 转为 Numpy 进行骨架化评估
+            # np_pred = label_pred.cpu().numpy()
+            # np_labels = labels.cpu().numpy()
+            # 这里的逻辑仅演示二分类(血管/背景)，如果是多分类需对各类别单独做 mask
+            # tmp_clDice = calculate_cldice_metric(np_pred, np_labels)
 
             unique_cls = torch.unique(labels)
             for cls in range(0, args.classes-1):
                 if cls+1 in unique_cls: 
                     # in case some classes are missing in the GT
                     # only classes appear in the GT are used for evaluation
-                    ASD_list[cls].append(tmp_ASD_list[cls])
-                    HD_list[cls].append(tmp_HD_list[cls])
+                    metrics_log['ASD'][cls].append(tmp_ASD_list[cls])
+                    metrics_log['HD'][cls].append(tmp_HD_list[cls])
+                    # metrics_log['Dice'][cls].append(dice2)
+                    # metrics_log['IoU'][cls].append(iou)
+                    # metrics_log['ACC'][cls].append(acc)
+                    # metrics_log['SPE'][cls].append(spe)
+                    # metrics_log['SEN'][cls].append(sen)
+                    # metrics_log['clDice'][cls].append(tmp_clDice)
 
-    out_dice = []
-    out_ASD = []
-    out_HD = []
-    out_IoU = []
-    out_ACC = []
-    out_SPE = []
-    out_SEN = []
+    # --- 聚合结果为 Dict ---
+    # 计算每个类别在所有 batch 上的平均值，再返回一个包含各指标数组的字典
+    performance_dict = {}
+    for key, value_list in metrics_log.items():
+        # 结果是 shape 为 (classes-1,) 的 numpy 数组
+        performance_dict[key] = np.array([np.array(cls_list).mean() for cls_list in value_list])
 
-    return np.array(out_dice), np.array(out_ASD), np.array(out_HD), np.array(out_IoU), np.array(out_ACC), np.array(out_SPE), np.array(out_SEN)
+    return performance_dict
 
 
 def validation_ddp(net, dataloader, args):
