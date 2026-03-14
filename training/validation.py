@@ -31,8 +31,9 @@ def scale_image_max(image):
 def save_images2(img, msk, msk_pred, name, save_path):
     if not os.path.exists(save_path):
         os.makedirs(save_path)
-    img = img.squeeze(0).permute(1,2,0).detach().cpu().numpy()
-    img = scale_image_max(img)
+    img = img.squeeze(0).permute(1,2,0).detach().cpu().numpy() * 255
+    # 如果原图像素分布集中（如 0.2-0.6），归一化后会把 0.2 映射为 0，0.6 映射为 255，导致对比度变高。
+    # img = scale_image_max(img)
     msk = msk.permute(1,2,0).detach().cpu().numpy()
     msk = scale_image_max(msk)
     msk_pred = msk_pred.permute(1,2,0).detach().cpu().numpy()
