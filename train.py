@@ -303,6 +303,7 @@ def get_parser():
     parser.add_argument('--test_root', type=str, default=None, help='testset root dir')
     parser.add_argument('--guidance_l2', action='store_true', default=False, help='enable guidance level 2')
     parser.add_argument('--guidance_l3', action='store_true', default=False, help='enable guidance level 3')
+    parser.add_argument('--use_prior_input', action='store_true', default=False, help='enable use_prior_input, only for 2d model')
 
     
     args = parser.parse_args()

@@ -16,9 +16,9 @@ def get_dataset(args, mode, **kwargs):
             
             return CAGDataset2(args, mode=mode, k_fold=args.k_fold, k=kwargs['fold_idx'], seed=args.split_seed)
         elif args.dataset == 'cag3':
-            from .dim2.dataset_cag import CAGDataset2
+            from .dim2.dataset_cag import CAGDataset3
             
-            return CAGDataset2(args, mode=mode, k_fold=args.k_fold, k=kwargs['fold_idx'], seed=args.split_seed)
+            return CAGDataset3(args, mode=mode, k_fold=args.k_fold, k=kwargs['fold_idx'], seed=args.split_seed)
         elif args.dataset == 'drive':
             from .dim2.dataset_drive import DriveDataset
             

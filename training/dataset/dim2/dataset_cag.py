@@ -315,3 +315,127 @@ class CAGDataset(Dataset):
         croped_lab = label[:, rand_x:rand_x+self.args.training_size[1], rand_y:rand_y+self.args.training_size[1]]
 
         return croped_img, croped_lab
+
+class CAGDataset3(Dataset):
+    """
+    基于 CAGDataset2:
+    - 图像输入支持 2 通道: [gray, prior_2c]
+    - prior 路径规则:
+      data_root/annotation_2c/{split}/{image_name}  (同名同后缀)
+    """
+    def __init__(self, args, mode='train', k_fold=5, k=0, seed=0):
+        data_path = args.data_root
+        if mode == "train":
+            self.name_list = sorted(os.listdir(data_path + '/images/training/'))
+            self.label_list = sorted(os.listdir(data_path + '/annotations/training/'))
+            self.data = []
+            for i in range(len(self.name_list)):
+                img_path = data_path + '/images/training/' + self.name_list[i]
+                mask_path = data_path + '/annotations/training/' + self.label_list[i]
+                self.data.append([img_path, mask_path, "training"])
+        elif mode == "val":
+            self.name_list = sorted(os.listdir(data_path + '/images/validation/'))
+            self.label_list = sorted(os.listdir(data_path + '/annotations/validation/'))
+            self.data = []
+            for i in range(len(self.name_list)):
+                img_path = data_path + '/images/validation/' + self.name_list[i]
+                mask_path = data_path + '/annotations/validation/' + self.label_list[i]
+                self.data.append([img_path, mask_path, "validation"])
+        elif mode == "test":
+            self.name_list = sorted(os.listdir(data_path + '/images/test/'))
+            self.label_list = sorted(os.listdir(data_path + '/annotations/test/'))
+            self.data = []
+            for i in range(len(self.name_list)):
+                img_path = data_path + '/images/test/' + self.name_list[i]
+                mask_path = data_path + '/annotations/test/' + self.label_list[i]
+                self.data.append([img_path, mask_path, "test"])
+        else:
+            raise ValueError("Error, invalid split type")
+
+        self.mode = mode
+        self.args = args
+        self.use_prior_input = getattr(args, "use_prior_input", True)  # 默认开启
+        self._prior_warned = False
+        logging.info(f"Start loading {self.mode} data")
+
+    def __len__(self):
+        return len(self.name_list)
+
+    def preprocess(self, img, lab):
+        # img: [C,H,W], lab: [1,H,W]
+        # 通道0灰度图按255归一化；通道1 prior做自适应归一化
+        img = img.astype(np.float32)
+        if img.shape[0] >= 1:
+            img[0] = img[0] / 255.0
+        if img.shape[0] >= 2:
+            # 若prior最大值>1，按255缩放；否则视为已是概率图[0,1]
+            if img[1].max() > 1.0:
+                img[1] = img[1] / 255.0
+            img[1] = np.clip(img[1], 0.0, 1.0)
+
+        lab = lab.astype(np.uint8)
+
+        tensor_img = torch.from_numpy(img).float()
+        tensor_lab = torch.from_numpy(lab).long()
+        return tensor_img, tensor_lab
+
+    def _load_prior(self, split_name, file_name, out_h, out_w):
+        prior_path = os.path.join(self.args.data_root, "annotation_2c", split_name, file_name)
+        prior = cv2.imread(prior_path, cv2.IMREAD_GRAYSCALE)
+        if prior is None:
+            if not self._prior_warned:
+                logging.warning(f"[CAGDataset3] prior not found, fallback zeros. e.g. {prior_path}")
+                self._prior_warned = True
+            prior = np.zeros((out_h, out_w), dtype=np.float32)
+        else:
+            prior = prior.astype(np.float32)
+            if prior.shape != (out_h, out_w):
+                prior = cv2.resize(prior, (out_w, out_h), interpolation=cv2.INTER_LINEAR)
+        return prior
+
+    def __getitem__(self, index):
+        index = index % len(self)
+        name = self.name_list[index]
+        img_path, msk_path, split_name = self.data[index]
+
+        image = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE).astype("float32")
+        label = cv2.imread(msk_path, cv2.IMREAD_GRAYSCALE).astype("float32")
+
+        image_size = (self.args.training_size[0], self.args.training_size[1])
+        image = cv2.resize(image, image_size, interpolation=cv2.INTER_LINEAR)
+        label = cv2.resize(label, image_size, interpolation=cv2.INTER_NEAREST)
+
+        if self.use_prior_input:
+            prior = self._load_prior(split_name, os.path.basename(img_path), image.shape[0], image.shape[1])
+            image = np.stack([image, prior], axis=0)      # [2,H,W]
+        else:
+            image = image.reshape((1, image.shape[0], image.shape[1]))  # [1,H,W]
+
+        label = label.reshape((1, label.shape[0], label.shape[1]))       # [1,H,W]
+
+        # 可选：调试阶段检查标签值
+        # u = np.unique(label)
+        # assert set(u.tolist()).issubset({0, 1, 2}), f"Unexpected label values: {u}"
+
+        tensor_img, tensor_lab = self.preprocess(image, label)
+
+        if self.mode == 'train':
+            tensor_img = tensor_img.unsqueeze(0)  # [1,C,H,W]
+            tensor_lab = tensor_lab.unsqueeze(0)  # [1,1,H,W]
+
+            tensor_img, tensor_lab = augmentation.random_scale_rotate_translate_2d(
+                tensor_img, tensor_lab, self.args.scale, self.args.rotate, self.args.translate
+            )
+            tensor_img, tensor_lab = augmentation.crop_2d(
+                tensor_img, tensor_lab, self.args.training_size, mode='random'
+            )
+
+            tensor_img, tensor_lab = tensor_img.squeeze(0), tensor_lab.squeeze(0)
+
+        # 仅检查空间尺寸一致（2通道输入时不能再比较整体shape）
+        assert tensor_img.shape[-2:] == tensor_lab.shape[-2:]
+
+        if self.mode == 'train':
+            return tensor_img, tensor_lab
+        else:
+            return tensor_img, tensor_lab, np.array((1.0, 1.0, 1.0)), name.split('/')[-1]

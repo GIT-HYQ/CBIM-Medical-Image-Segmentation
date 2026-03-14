@@ -11,7 +11,11 @@ modality: CT
 
 #MODEL
 arch: medformer
-in_chan: 1
+# in_chan: 1
+
+in_chan: 2      # 利用2c模型的分割掩码作为先验与原输入连接一起
+use_prior_input: true # 是否使用先验输入（分割掩码），仅适用于2d模型
+
 base_chan: 32
 conv_block: 'BasicBlock'
 conv_num: [2,0,0,0,  0,0,2,2]
@@ -25,6 +29,8 @@ fusion_heads: 16
 proj_type: 'depthwise'
 attn_drop: 0.
 proj_drop: 0.
+
+
 
 
 
