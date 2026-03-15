@@ -321,7 +321,7 @@ class CAGDataset3(Dataset):
     基于 CAGDataset2:
     - 图像输入支持 2 通道: [gray, prior_2c]
     - prior 路径规则:
-      data_root/annotation_2c/{split}/{image_name}  (同名同后缀)
+      data_root/annotations_2c/{split}/{image_name}  (同名同后缀)
     """
     def __init__(self, args, mode='train', k_fold=5, k=0, seed=0):
         data_path = args.data_root
@@ -380,17 +380,22 @@ class CAGDataset3(Dataset):
         return tensor_img, tensor_lab
 
     def _load_prior(self, split_name, file_name, out_h, out_w):
-        prior_path = os.path.join(self.args.data_root, "annotation_2c", split_name, file_name)
+        # 固定规则：data_root/annotations_2c/{split}/{stem}_manual1{ext}
+        stem, ext = os.path.splitext(file_name)
+        prior_path = os.path.join(
+            self.args.data_root,
+            "annotations_2c",
+            split_name,
+            f"{stem}_manual1{ext}"
+        )
+
         prior = cv2.imread(prior_path, cv2.IMREAD_GRAYSCALE)
         if prior is None:
-            if not self._prior_warned:
-                logging.warning(f"[CAGDataset3] prior not found, fallback zeros. e.g. {prior_path}")
-                self._prior_warned = True
-            prior = np.zeros((out_h, out_w), dtype=np.float32)
-        else:
-            prior = prior.astype(np.float32)
-            if prior.shape != (out_h, out_w):
-                prior = cv2.resize(prior, (out_w, out_h), interpolation=cv2.INTER_LINEAR)
+            raise FileNotFoundError(f"[CAGDataset3] prior not found/readable: {prior_path}")
+
+        prior = prior.astype(np.float32)
+        if prior.shape != (out_h, out_w):
+            prior = cv2.resize(prior, (out_w, out_h), interpolation=cv2.INTER_LINEAR)
         return prior
 
     def __getitem__(self, index):
