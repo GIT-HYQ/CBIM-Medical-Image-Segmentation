@@ -93,11 +93,13 @@ def get_parser():
 
     # 新增：2c先验目录名（相对data_root）
     parser.add_argument('--prior_dir_name', type=str, default=None, help='prior dir name under data_root, e.g. annotations_2c')
+    parser.add_argument('--prior_suffix', type=str, default=None, help='e.g. _manual1 / _prior / ""')
 
     args = parser.parse_args()
 
     # 记录命令行值，防止被yaml覆盖
     cli_prior_dir_name = args.prior_dir_name
+    cli_prior_suffix = args.prior_suffix
 
     config_path = 'config/%s/%s_%s.yaml'%(args.dataset, args.model, args.dimension)
     if not os.path.exists(config_path):
@@ -118,6 +120,13 @@ def get_parser():
     # 默认值兜底
     if not hasattr(args, "prior_dir_name") or args.prior_dir_name is None:
         args.prior_dir_name = "annotations_2c"
+    if cli_prior_suffix is not None:
+        args.prior_suffix = cli_prior_suffix
+    # 兜底
+    if not hasattr(args, "prior_dir_name"):
+        args.prior_dir_name = "annotations_2c"
+    if not hasattr(args, "prior_suffix"):
+        args.prior_suffix = "_manual1"
 
     if args.test_root is not None:
         args.data_root = args.test_root
