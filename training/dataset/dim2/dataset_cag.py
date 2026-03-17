@@ -355,8 +355,10 @@ class CAGDataset3(Dataset):
         self.mode = mode
         self.args = args
         self.use_prior_input = getattr(args, "use_prior_input", True)  # 默认开启
+        self.prior_dir_name = getattr(args, "prior_dir_name", "annotations_2c")  # 新增
         self._prior_warned = False
         logging.info(f"Start loading {self.mode} data")
+        logging.info(f"[CAGDataset3] prior_dir_name={self.prior_dir_name}")
 
     def __len__(self):
         return len(self.name_list)
@@ -384,7 +386,7 @@ class CAGDataset3(Dataset):
         stem, ext = os.path.splitext(file_name)
         prior_path = os.path.join(
             self.args.data_root,
-            "annotations_2c",
+            self.prior_dir_name,
             split_name,
             f"{stem}_manual1{ext}"
         )
