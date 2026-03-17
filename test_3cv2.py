@@ -91,7 +91,13 @@ def get_parser():
     parser.add_argument('--test_without_calc', default=False, action='store_true', help='test without calc iou')
     parser.add_argument('--test_without_log', default=False, action='store_true', help='test without write log')
 
+    # 新增：2c先验目录名（相对data_root）
+    parser.add_argument('--prior_dir_name', type=str, default=None, help='prior dir name under data_root, e.g. annotations_2c')
+
     args = parser.parse_args()
+
+    # 记录命令行值，防止被yaml覆盖
+    cli_prior_dir_name = args.prior_dir_name
 
     config_path = 'config/%s/%s_%s.yaml'%(args.dataset, args.model, args.dimension)
     if not os.path.exists(config_path):
@@ -104,6 +110,14 @@ def get_parser():
 
     for key, value in config.items():
         setattr(args, key, value)
+    
+    # 命令行优先
+    if cli_prior_dir_name is not None:
+        args.prior_dir_name = cli_prior_dir_name
+
+    # 默认值兜底
+    if not hasattr(args, "prior_dir_name") or args.prior_dir_name is None:
+        args.prior_dir_name = "annotations_2c"
 
     if args.test_root is not None:
         args.data_root = args.test_root
