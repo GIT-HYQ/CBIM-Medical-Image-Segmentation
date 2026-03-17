@@ -355,11 +355,14 @@ class CAGDataset3(Dataset):
         self.mode = mode
         self.args = args
         self.use_prior_input = getattr(args, "use_prior_input", True)  # 默认开启
-        self.prior_dir_name = getattr(args, "prior_dir_name", "annotations_2c")  # 新增
-        self.prior_suffix = getattr(args, "prior_suffix", "_manual1")  # 新增
+        self.prior_pattern = getattr(
+            args,
+            "prior_pattern",
+            "{data_root}/annotations_2c/{split}/{stem}_manual1{ext}"
+        )
         self._prior_warned = False
         logging.info(f"Start loading {self.mode} data")
-        logging.info(f"[CAGDataset3] prior_dir_name={self.prior_dir_name}, prior_suffix={self.prior_suffix}")
+        logging.info(f"[CAGDataset3] prior_pattern={self.prior_pattern}")
 
     def __len__(self):
         return len(self.name_list)
@@ -383,13 +386,14 @@ class CAGDataset3(Dataset):
         return tensor_img, tensor_lab
 
     def _load_prior(self, split_name, file_name, out_h, out_w):
-        # 固定规则：data_root/{prior_dir_name}/{split}/{stem}{prior_suffix}{ext}
+        # 外部指定规则：默认{data_root}/annotations_2c/{split}/{stem}_manual1{ext}
         stem, ext = os.path.splitext(file_name)
-        prior_path = os.path.join(
-            self.args.data_root,
-            self.prior_dir_name,
-            split_name,
-            f"{stem}{self.prior_suffix}{ext}"
+        prior_path = self.prior_pattern.format(
+            data_root=self.args.data_root,
+            split=split_name,
+            name=file_name,
+            stem=stem,
+            ext=ext,
         )
 
         prior = cv2.imread(prior_path, cv2.IMREAD_GRAYSCALE)

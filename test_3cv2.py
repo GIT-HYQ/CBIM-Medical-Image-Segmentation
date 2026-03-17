@@ -92,14 +92,17 @@ def get_parser():
     parser.add_argument('--test_without_log', default=False, action='store_true', help='test without write log')
 
     # 新增：2c先验目录名（相对data_root）
-    parser.add_argument('--prior_dir_name', type=str, default=None, help='prior dir name under data_root, e.g. annotations_2c')
-    parser.add_argument('--prior_suffix', type=str, default=None, help='e.g. _manual1 / _prior / ""')
+    parser.add_argument(
+        "--prior_pattern",
+        type=str,
+        default=None,
+        help='e.g. "{data_root}/annotations_2c/{split}/{stem}_manual1{ext}"'
+    )
 
     args = parser.parse_args()
 
     # 记录命令行值，防止被yaml覆盖
-    cli_prior_dir_name = args.prior_dir_name
-    cli_prior_suffix = args.prior_suffix
+    cli_prior_pattern = args.prior_pattern
 
     config_path = 'config/%s/%s_%s.yaml'%(args.dataset, args.model, args.dimension)
     if not os.path.exists(config_path):
@@ -114,19 +117,12 @@ def get_parser():
         setattr(args, key, value)
     
     # 命令行优先
-    if cli_prior_dir_name is not None:
-        args.prior_dir_name = cli_prior_dir_name
+    if cli_prior_pattern is not None:
+        args.prior_pattern = cli_prior_pattern
 
     # 默认值兜底
-    if not hasattr(args, "prior_dir_name") or args.prior_dir_name is None:
-        args.prior_dir_name = "annotations_2c"
-    if cli_prior_suffix is not None:
-        args.prior_suffix = cli_prior_suffix
-    # 兜底
-    if not hasattr(args, "prior_dir_name"):
-        args.prior_dir_name = "annotations_2c"
-    if not hasattr(args, "prior_suffix"):
-        args.prior_suffix = "_manual1"
+    if not hasattr(args, "prior_pattern") or args.prior_pattern is None:
+        args.prior_pattern = "{data_root}/annotations_2c/{split}/{stem}_manual1{ext}"
 
     if args.test_root is not None:
         args.data_root = args.test_root
