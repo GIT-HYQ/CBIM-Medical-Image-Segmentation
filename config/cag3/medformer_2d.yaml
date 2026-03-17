@@ -35,7 +35,7 @@ proj_drop: 0.
 
 
 #TRAIN
-epochs: 1000
+epochs: 500
 training_size: [512, 512]    # training crop size
 start_epoch: 0
 aux_loss: True

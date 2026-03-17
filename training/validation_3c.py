@@ -8,7 +8,9 @@
 from typing import Any
 import torch
 from training import validation as _v
-
+import cv2
+import os
+import numpy as np
 
 def _fix_2d_input_layout(inputs: torch.Tensor, args) -> torch.Tensor:
     """
@@ -68,6 +70,22 @@ class _FixedLoader:
         # passthrough: dataset, sampler, batch_size, etc.
         return getattr(self._loader, name)
 
+def save_images2(img, msk, msk_pred, name, save_path):
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+    # 保留第一个通道，训练时叠加了一个通道的分割掩码先验，所以原图的第一个通道才是我们需要保存的内容
+    img = img.squeeze(0).permute(1,2,0).detach().cpu().numpy()[:, :, 0] * 255
+    img = img.astype(np.uint8)
+    msk = msk.permute(1,2,0).detach().cpu().numpy()
+    msk = scale_image_max(msk)
+    msk_pred = msk_pred.permute(1,2,0).detach().cpu().numpy()
+    msk_pred = scale_image_max(msk_pred)
+    image_path = os.path.join(save_path, name.replace('.png', '_src.png'))
+    mask_path = os.path.join(save_path, name.replace('.png', '_mask.png'))
+    pred_path = os.path.join(save_path, name.replace('.png', '_pred.png'))
+    cv2.imwrite(image_path, img)
+    cv2.imwrite(mask_path, msk)
+    cv2.imwrite(pred_path, msk_pred)
 
 def validation(net, valLoader, args, **kwargs):
     fixed_loader = _FixedLoader(valLoader, args)
@@ -91,7 +109,8 @@ def validation_ddp(net, valLoader, args, **kwargs):
 # Optional re-export helpers for compatibility
 if hasattr(_v, "scale_image_max"):
     scale_image_max = _v.scale_image_max
-if hasattr(_v, "save_images2"):
-    save_images2 = _v.save_images2
+# if hasattr(_v, "save_images2"):
+#     save_images2 = _v.save_images2
+    _v.save_images2 = save_images2
 if hasattr(_v, "save_images"):
     save_images = _v.save_images
