@@ -1,5 +1,3 @@
-import numpy as np
-
 def get_dataset(args, mode, **kwargs):
     
     if args.dimension == '2d':
@@ -61,7 +59,8 @@ def get_dataset(args, mode, **kwargs):
             from .dim3.dataset_msd_lung import LungDataset
 
             return LungDataset(args, mode=mode, k_fold=args.k_fold, k=kwargs['fold_idx'], seed=args.split_seed)
-            
 
+        elif args.dataset == 'tooth':
+            from .dim3.dataset_tooth import ToothDataset
 
-
+            return ToothDataset(args, mode=mode, k_fold=args.k_fold, k=kwargs['fold_idx'], seed=args.split_seed)
