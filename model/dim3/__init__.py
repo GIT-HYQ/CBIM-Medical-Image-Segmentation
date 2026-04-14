@@ -3,7 +3,6 @@ from .unet import UNet
 from .unetpp import UNetPlusPlus
 from .attention_unet import AttentionUNet
 from .medformer import MedFormer
-from .nnformer import nnFormer
 
 # Optional dependencies: keep package import usable when extras are missing.
 try:
@@ -20,4 +19,9 @@ try:
 	from .swin_unetr import SwinUNETR
 except ModuleNotFoundError:
 	SwinUNETR = None
+
+try:
+	from .nnformer import nnFormer
+except ModuleNotFoundError:
+	nnFormer = None
 

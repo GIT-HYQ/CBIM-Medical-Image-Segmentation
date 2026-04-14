@@ -187,6 +187,8 @@ def get_model(args, pretrain=False):
             return model
         elif args.model == 'nnformer':
             from .dim3 import nnFormer
+            if nnFormer is None:
+                raise ModuleNotFoundError("Model 'nnformer' requires batchgenerators. Please install batchgenerators (e.g., pip install batchgenerators).")
             model = nnFormer(args.window_size, input_channels=args.in_chan, num_classes=args.classes, deep_supervision=args.aux_loss)
 
             return model
