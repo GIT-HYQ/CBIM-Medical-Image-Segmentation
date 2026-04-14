@@ -10,11 +10,6 @@ Run spacing analysis on `imagesTr` to get median/p10/p90 and a recommended targe
 python dataset_conversion/analyze_tooth_spacing.py --images_dir RAW/images --image_suffix .mha --save_report .\spacing_stats.yaml
 ```
 
-Or use the merged analyzer:
-
-```powershell
-python dataset_conversion/analyze_tooth_labels.py --report_mode spacing --images_dir RAW/images --image_suffix .mha --save_spacing_report .\spacing_stats.yaml
-```
 
 Use `recommended_target_spacing` (or nearby rounded values like `0.4,0.4,0.4`) for `tooth_3d.py --target_spacing`.
 
@@ -30,10 +25,22 @@ python dataset_conversion/analyze_tooth_labels.py --labels_dir RAW/labels --labe
 
 Create a YAML map from raw tooth IDs to contiguous training IDs.
 
+Important policy: raw IDs `1..10` are treated as non-tooth/background and should map to `0`.
+
 Example (`label_map.yaml`):
 
 ```yaml
 0: 0
+1: 0
+2: 0
+3: 0
+4: 0
+5: 0
+6: 0
+7: 0
+8: 0
+9: 0
+10: 0
 11: 1
 12: 2
 13: 3
@@ -87,6 +94,19 @@ Run conversion:
 ```powershell
 python dataset_conversion/tooth_3d.py --src_images RAW/images --src_labels RAW/labels --dst_root DATA/tooth_3d --label_map .\label_map.yaml --strict_unmapped --target_spacing 0.4,0.4,0.4
 ```
+
+Optional (recommended for faster loading): foreground crop after remapping labels (`label > 0`), with context in `z,y,x`:
+
+```powershell
+python dataset_conversion/tooth_3d.py --src_images RAW/images --src_labels RAW/labels --dst_root DATA/tooth_3d --label_map .\label_map.yaml --strict_unmapped --target_spacing 0.4,0.4,0.4 --crop_foreground --crop_context 10,30,30
+```
+
+Crop behavior notes:
+
+- The crop bbox is computed from mapped labels (`> 0`) for each case.
+- `--crop_context 10,30,30` is an empirical default in voxel units (`z,y,x`), not a fixed best value.
+- Increase context (for example `15,40,40`) if validation shows boundary miss/under-segmentation.
+- Decrease context to improve speed/memory only when validation quality stays stable.
 
 Equivalent explicit command (same default behavior):
 
