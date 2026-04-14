@@ -2,11 +2,15 @@ from .vnet import VNet
 from .unet import UNet
 from .unetpp import UNetPlusPlus
 from .attention_unet import AttentionUNet
-from .vtunet import VTUNet
 from .medformer import MedFormer
 from .nnformer import nnFormer
 
-# Optional MONAI-based models. Keep package import usable when monai is absent.
+# Optional dependencies: keep package import usable when extras are missing.
+try:
+	from .vtunet import VTUNet
+except ModuleNotFoundError:
+	VTUNet = None
+
 try:
 	from .unetr import UNETR
 except ModuleNotFoundError:

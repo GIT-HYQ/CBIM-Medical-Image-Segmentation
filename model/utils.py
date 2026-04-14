@@ -167,6 +167,8 @@ def get_model(args, pretrain=False):
             return model
         elif args.model == 'vtunet':
             from .dim3 import VTUNet
+            if VTUNet is None:
+                raise ModuleNotFoundError("Model 'vtunet' requires mmcv. Please install a compatible mmcv version.")
             model = VTUNet(args, args.classes)
 
             if pretrain:
