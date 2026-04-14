@@ -160,6 +160,8 @@ def get_model(args, pretrain=False):
     
         elif args.model == 'unetr':
             from .dim3 import UNETR
+            if UNETR is None:
+                raise ModuleNotFoundError("Model 'unetr' requires monai. Please install monai (e.g., pip install monai).")
             model = UNETR(args.in_chan, args.classes, args.training_size, feature_size=16, hidden_size=768, mlp_dim=3072, num_heads=12, pos_embed='perceptron', norm_name='instance', res_block=True)
             
             return model
@@ -172,6 +174,8 @@ def get_model(args, pretrain=False):
             return model
         elif args.model == 'swin_unetr':
             from .dim3 import SwinUNETR
+            if SwinUNETR is None:
+                raise ModuleNotFoundError("Model 'swin_unetr' requires monai. Please install monai (e.g., pip install monai).")
             model = SwinUNETR(args.window_size, args.in_chan, args.classes, feature_size=args.base_chan)
 
             if args.pretrain:
