@@ -2,7 +2,23 @@
 
 This quickstart describes the first runnable integration for tooth multi-class 3D segmentation.
 
-## 1) Analyze labels (optional but recommended)
+## 1) Analyze spacing (recommended for target spacing)
+
+Run spacing analysis on `imagesTr` to get median/p10/p90 and a recommended target spacing:
+
+```powershell
+python dataset_conversion/analyze_tooth_spacing.py --images_dir RAW/images --image_suffix .mha --save_report .\spacing_stats.yaml
+```
+
+Or use the merged analyzer:
+
+```powershell
+python dataset_conversion/analyze_tooth_labels.py --report_mode spacing --images_dir RAW/images --image_suffix .mha --save_spacing_report .\spacing_stats.yaml
+```
+
+Use `recommended_target_spacing` (or nearby rounded values like `0.4,0.4,0.4`) for `tooth_3d.py --target_spacing`.
+
+## 2) Analyze labels (optional but recommended)
 
 Run a dataset-wide label audit to get unique IDs and a suggested contiguous mapping:
 
@@ -10,7 +26,7 @@ Run a dataset-wide label audit to get unique IDs and a suggested contiguous mapp
 python dataset_conversion/analyze_tooth_labels.py --labels_dir RAW/labels --label_suffix .mha --save_report .\label_stats.yaml --save_map .\label_map.yaml
 ```
 
-## 2) Prepare label map
+## 3) Prepare label map
 
 Create a YAML map from raw tooth IDs to contiguous training IDs.
 
@@ -52,7 +68,7 @@ Example (`label_map.yaml`):
 48: 32
 ```
 
-## 3) Convert `.mha` to CBIM format
+## 4) Convert `.mha` to CBIM format
 
 Expected source layout:
 
@@ -71,7 +87,7 @@ Output layout:
 - `DATA/tooth_3d/case_xxx_gt.nii.gz`
 - `DATA/tooth_3d/list/dataset.yaml`
 
-## 4) Update config
+## 5) Update config
 
 Edit `config/tooth/medformer_3d.yaml`:
 
@@ -79,20 +95,20 @@ Edit `config/tooth/medformer_3d.yaml`:
 - `classes` -> number of classes including background
 - `weight` length must equal `classes`
 
-## 5) Train and test
+## 6) Train and test
 
 ```powershell
 python train.py --dataset tooth --model medformer --dimension 3d
 python test.py --dataset tooth --model medformer --dimension 3d --load /path/to/fold_0_best.pth
 ```
 
-## 6) Predict new images
+## 7) Predict new images
 
 ```powershell
 python prediction.py --dataset tooth --model medformer --dimension 3d --load /path/to/fold_0_best.pth --img_path /path/to/images --save_path /path/to/preds --target_spacing 0.4,0.4,0.4
 ```
 
-## 7) Smoke test conversion
+## 8) Smoke test conversion
 
 ```powershell
 python dataset_conversion/tooth_3d_smoke_test.py
