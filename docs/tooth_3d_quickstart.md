@@ -75,10 +75,23 @@ Expected source layout:
 - `RAW/images/*.mha`
 - `RAW/labels/*.mha`
 
+Name matching rule (important):
+
+- By default, `tooth_3d.py` uses `--image_stem_suffix _0000`.
+- Example: image `ToothFairy2F_001_0000.mha` is matched to label `ToothFairy2F_001.mha`.
+- If your image and label stems are already the same, disable trimming with `--image_stem_suffix ""`.
+- Output `case_name` follows the matched label stem, and files are written as `case_name.nii.gz` and `case_name_gt.nii.gz` in the same folder.
+
 Run conversion:
 
 ```powershell
 python dataset_conversion/tooth_3d.py --src_images RAW/images --src_labels RAW/labels --dst_root DATA/tooth_3d --label_map .\label_map.yaml --strict_unmapped --target_spacing 0.4,0.4,0.4
+```
+
+Equivalent explicit command (same default behavior):
+
+```powershell
+python dataset_conversion/tooth_3d.py --src_images RAW/images --src_labels RAW/labels --dst_root DATA/tooth_3d --label_map .\label_map.yaml --strict_unmapped --target_spacing 0.4,0.4,0.4 --image_stem_suffix _0000
 ```
 
 Output layout:

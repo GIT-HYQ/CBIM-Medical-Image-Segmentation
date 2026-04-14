@@ -129,17 +129,32 @@ def convert_case(image_path, label_path, dst_root, case_name, target_spacing, ra
     sitk.WriteImage(mapped_itk_lab, str(dst_root / f"{case_name}_gt.nii.gz"))
 
 
-def collect_cases(images_dir, labels_dir, image_suffix, label_suffix):
+def collect_cases(images_dir, labels_dir, image_suffix, label_suffix, image_stem_suffix=""):
     image_paths = sorted(images_dir.glob(f"*{image_suffix}"))
     if not image_paths:
         raise ValueError(f"No image files found in {images_dir} with suffix {image_suffix}")
 
     pairs = []
     for img_path in image_paths:
-        case_name = img_path.name[: -len(image_suffix)]
+        image_stem = img_path.name[: -len(image_suffix)]
+
+        case_name = image_stem
+        if image_stem_suffix and image_stem.endswith(image_stem_suffix):
+            case_name = image_stem[: -len(image_stem_suffix)]
+            if case_name == "":
+                raise ValueError(f"Invalid image name after trimming suffix: {img_path.name}")
+
         lab_path = labels_dir / f"{case_name}{label_suffix}"
+        # Fallback to unchanged stem to keep backward compatibility.
+        if not lab_path.exists() and case_name != image_stem:
+            lab_path = labels_dir / f"{image_stem}{label_suffix}"
+            case_name = image_stem
+
         if not lab_path.exists():
-            raise FileNotFoundError(f"Label not found for case {case_name}: {lab_path}")
+            raise FileNotFoundError(
+                f"Label not found for image {img_path.name}. Tried: "
+                f"{labels_dir / (case_name + label_suffix)} and {labels_dir / (image_stem + label_suffix)}"
+            )
         pairs.append((case_name, img_path, lab_path))
 
     return pairs
@@ -152,6 +167,12 @@ def main():
     parser.add_argument("--dst_root", type=str, required=True, help="Output dataset root")
     parser.add_argument("--image_suffix", type=str, default=".mha", help="Image file suffix")
     parser.add_argument("--label_suffix", type=str, default=".mha", help="Label file suffix")
+    parser.add_argument(
+        "--image_stem_suffix",
+        type=str,
+        default="_0000",
+        help="Suffix in image stem to trim when matching labels, e.g. ToothFairy2F_001_0000 -> ToothFairy2F_001",
+    )
     parser.add_argument(
         "--label_map",
         type=str,
@@ -186,7 +207,13 @@ def main():
     dst_root.mkdir(parents=True, exist_ok=True)
     list_dir.mkdir(parents=True, exist_ok=True)
 
-    pairs = collect_cases(images_dir, labels_dir, args.image_suffix, args.label_suffix)
+    pairs = collect_cases(
+        images_dir,
+        labels_dir,
+        args.image_suffix,
+        args.label_suffix,
+        image_stem_suffix=args.image_stem_suffix,
+    )
 
     if args.label_map is not None:
         raw_to_train = load_label_map(args.label_map)
