@@ -1,0 +1,36 @@
+anisotropy_ratio:
+  max: 1.0
+  median: 1.0
+  min: 1.0
+  p10: 1.0
+  p50: 1.0
+  p90: 1.0
+axis:
+  x:
+    max: 0.3
+    median: 0.3
+    min: 0.3
+    p10: 0.3
+    p50: 0.3
+    p90: 0.3
+  y:
+    max: 0.3
+    median: 0.3
+    min: 0.3
+    p10: 0.3
+    p50: 0.3
+    p90: 0.3
+  z:
+    max: 0.3
+    median: 0.3
+    min: 0.3
+    p10: 0.3
+    p50: 0.3
+    p90: 0.3
+num_failed: 0
+num_files: 480
+num_readable: 480
+recommended_target_spacing:
+- 0.3
+- 0.3
+- 0.3
