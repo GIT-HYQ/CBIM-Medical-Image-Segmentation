@@ -315,24 +315,24 @@ def validation_ddp(net, dataloader, args):
 
     with torch.no_grad():
         iterator = tqdm(dataloader) if is_master(args) else dataloader
-        for (images, labels, spacing) in iterator:
+        for images, labels, spacing, name in iterator:
             # spacing here is used for distance metrics calculation
-            
             inputs, labels = images.cuda(args.proc_idx).float(), labels.cuda(args.proc_idx).long()
-            
             if args.dimension == '2d':
                 inputs = inputs.permute(1, 0, 2, 3)
-            
             pred = inference(net, inputs, args)
-
             _, label_pred = torch.max(pred, dim=1)
-            
             if args.dimension == '2d':
                 labels = labels.squeeze(0)
             else:
                 label_pred = label_pred.squeeze(0)
                 labels = labels.squeeze(0).squeeze(0)
  
+
+            # 保存预测图片，仅主进程执行，避免多卡重复写文件
+            if args.save and is_master(args):
+                save_path = args.save_path if args.save_path is not None else args.cp_dir + "/preds"
+                save_images2(inputs, labels, label_pred, name[0], save_path)
 
             tmp_ASD_list, tmp_HD_list = calculate_distance(label_pred, labels, spacing[0], args.classes)
             # comment this for fast debugging. (HD and ASD computation for large 3D images are slow)
