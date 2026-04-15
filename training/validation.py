@@ -330,7 +330,7 @@ def validation_ddp(net, dataloader, args):
  
 
             # 保存预测图片，仅主进程执行，避免多卡重复写文件
-            if args.save and is_master(args):
+            if getattr(args, "save", False) and is_master(args):
                 save_path = args.save_path if args.save_path is not None else args.cp_dir + "/preds"
                 save_images2(inputs, labels, label_pred, name[0], save_path)
 

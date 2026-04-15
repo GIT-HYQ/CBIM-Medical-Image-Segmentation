@@ -248,6 +248,7 @@ def get_parser():
     parser.add_argument('--unique_name', type=str, default='test', help='unique experiment name')
     
     parser.add_argument('--gpu', type=str, default='0,1,2,3')
+    parser.add_argument('--save', action='store_true', help='save prediction images during validation')
 
     args = parser.parse_args()
 
