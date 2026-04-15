@@ -130,6 +130,12 @@ This keeps validation / test in full-case mode, but training reads only indexed 
 python dataset_conversion/tooth_patch_index.py --data_root DATA/tooth_3d --patch_size 64,160,160 --patches_per_case 8 --foreground_fraction 0.875 --foreground_threshold 0.01 --background_max_fg_ratio 0.0
 ```
 
+Recommended with fixed split (generate only train-case indices for one fold):
+
+```powershell
+python dataset_conversion/tooth_patch_index.py --data_root DATA/tooth_3d --patch_size 64,160,160 --patches_per_case 8 --foreground_fraction 0.875 --foreground_threshold 0.01 --background_max_fg_ratio 0.0 --split_file DATA/tooth_3d/list/tooth_split_k5_seed0.yaml --fold 0 --k_fold 5 --split_seed 0
+```
+
 Default outputs:
 
 - `DATA/tooth_3d/list/tooth_patch_index.npz`
@@ -141,6 +147,7 @@ Recommended meaning of the main arguments:
 - `--patches_per_case`: how many candidate training patches to cache per converted case
 - `--foreground_fraction`: foreground-preferred patch ratio (for example `0.875` means 7 foreground-preferred + 1 background-preferred when `patches_per_case=8`)
 - `--foreground_threshold`: minimum foreground voxel ratio inside a patch to accept it as foreground-preferred
+- `--split_file` + `--fold`: limit patch generation to that fold's `train` cases only (avoid generating val/test patch indices)
 
 Patch-count sizing tip:
 
@@ -154,6 +161,26 @@ Edit `config/tooth/medformer_3d.yaml`:
 - `data_root` -> your converted folder
 - `classes` -> number of classes including background
 - `weight` length must equal `classes`
+- fixed split file (recommended for reproducibility across reruns/machines):
+
+```powershell
+python dataset_conversion/tooth_split.py --data_root DATA/tooth_3d --k_fold 5 --seed 0
+```
+
+By default this uses `holdout_ratio=0.15` and writes `DATA/tooth_3d/list/tooth_split_k5_seed0.yaml` with:
+
+- top-level independent `holdout_test` (15%)
+- per-fold internal `train/val` lists (no fold-local test)
+
+- fixed split config keys:
+
+```yaml
+split_file: null        # null -> auto use data_root/list/tooth_split_k{k_fold}_seed{split_seed}.yaml if present
+save_split_file: true   # auto save the deterministic split file when missing
+split_holdout_ratio: 0.15
+run_folds: null         # e.g. [0] to train only fold 0
+```
+
 - enable indexed patch training when needed:
 
 ```yaml
@@ -164,6 +191,9 @@ patch_index_cache_cases: 2
 
 Notes:
 
+- with `split_file` set (or auto-detected), all folds use that fixed case list instead of rebuilding split each run
+- with `split_holdout_ratio: 0.15`, independent holdout test is 15% of all cases
+- each internal fold uses only `train/val`; test comes from the independent holdout list
 - `patch_index_file: null` means use `data_root/list/tooth_patch_index.npz`
 - `patch_index_cache_cases` is a small per-worker cache of full cases before patch extraction
 - if `patch_index_enabled: false`, the dataset falls back to the previous random online crop behavior
@@ -185,5 +215,6 @@ python prediction.py --dataset tooth --model medformer --dimension 3d --load /pa
 
 ```powershell
 python dataset_conversion/tooth_3d_smoke_test.py
+python dataset_conversion/tooth_split_smoke_test.py
 python dataset_conversion/tooth_patch_index_smoke_test.py
 ```

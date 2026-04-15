@@ -28,27 +28,34 @@ class ToothDataset(Dataset):
         with open(os.path.join(args.data_root, "list", "dataset.yaml"), "r") as f:
             img_name_list = yaml.load(f, Loader=yaml.SafeLoader)
 
-        random.Random(seed).shuffle(img_name_list)
-
-        length = len(img_name_list)
-        fold_len = max(1, length // k_fold)
-        test_start = k * fold_len
-        test_end = (k + 1) * fold_len if k < k_fold - 1 else length
-
-        test_name_list = img_name_list[test_start:test_end]
-        test_name_set = set(test_name_list)
-        train_name_list = [name for name in img_name_list if name not in test_name_set]
-
-        val_len = max(1, int(len(train_name_list) * 0.2)) if len(train_name_list) > 1 else 0
-        val_name_list = train_name_list[:val_len]
-        train_name_list = train_name_list[val_len:] if val_len > 0 else train_name_list
-
-        if mode == "train":
-            selected_names = train_name_list
-        elif mode == "val":
-            selected_names = val_name_list if len(val_name_list) > 0 else test_name_list
+        split_file_path = self.resolve_split_file_path(k_fold, seed)
+        split_payload = None
+        if os.path.exists(split_file_path):
+            split_payload = self.load_split_file(split_file_path, img_name_list, k_fold, seed)
         else:
-            selected_names = test_name_list
+            split_payload = self.build_split_payload(img_name_list, k_fold, seed)
+            if bool(getattr(self.args, "save_split_file", True)):
+                self.save_split_file(split_file_path, split_payload)
+
+        if int(k) < 0 or int(k) >= len(split_payload["folds"]):
+            raise ValueError(f"Invalid fold index k={k} for k_fold={k_fold}")
+
+        if mode == "test":
+            # New split schema stores independent holdout once for all folds.
+            if "holdout_test" in split_payload:
+                selected_names = split_payload.get("holdout_test", [])
+            else:
+                # Backward compatibility with legacy folds[].test schema.
+                selected_names = split_payload["folds"][int(k)].get("test", [])
+        else:
+            fold_split = split_payload["folds"][int(k)]
+            if mode == "train":
+                selected_names = fold_split["train"]
+            else:
+                selected_names = fold_split["val"] if len(fold_split["val"]) > 0 else fold_split["train"]
+
+        if len(selected_names) == 0:
+            raise ValueError(f"Selected split is empty for mode={mode}, fold={k}")
 
         print("Start loading %s data" % self.mode)
         print(selected_names)
@@ -94,6 +101,105 @@ class ToothDataset(Dataset):
                 return len(self.patch_records)
             return len(self.img_list) * 100000
         return len(self.name_list)
+
+    def resolve_split_file_path(self, k_fold, seed):
+        split_file = getattr(self.args, "split_file", None)
+        if split_file is not None and str(split_file).strip() != "":
+            return str(split_file)
+        return os.path.join(self.args.data_root, "list", f"tooth_split_k{k_fold}_seed{seed}.yaml")
+
+    def build_split_payload(self, img_name_list, k_fold, seed):
+        shuffled = list(img_name_list)
+        random.Random(seed).shuffle(shuffled)
+        length = len(shuffled)
+
+        holdout_ratio = float(getattr(self.args, "split_holdout_ratio", 0.15))
+        holdout_num = int(round(length * holdout_ratio))
+        holdout_num = max(1, holdout_num)
+        holdout_num = min(length - 1, holdout_num) if length > 1 else length
+
+        holdout_test = shuffled[:holdout_num]
+        trainval = shuffled[holdout_num:]
+        fold_len = max(1, len(trainval) // k_fold)
+
+        folds = []
+        for fold_idx in range(k_fold):
+            val_start = fold_idx * fold_len
+            val_end = (fold_idx + 1) * fold_len if fold_idx < k_fold - 1 else len(trainval)
+
+            val_names = trainval[val_start:val_end]
+            val_set = set(val_names)
+            train_names = [name for name in trainval if name not in val_set]
+
+            folds.append(
+                {
+                    "fold": int(fold_idx),
+                    "train": list(train_names),
+                    "val": list(val_names),
+                }
+            )
+
+        return {
+            "split_version": 2,
+            "k_fold": int(k_fold),
+            "seed": int(seed),
+            "holdout_ratio": float(holdout_ratio),
+            "num_cases": int(length),
+            "num_holdout_test": int(len(holdout_test)),
+            "num_trainval": int(len(trainval)),
+            "holdout_test": list(holdout_test),
+            "folds": folds,
+        }
+
+    def load_split_file(self, split_file_path, img_name_list, k_fold, seed):
+        with open(split_file_path, "r", encoding="utf-8") as f:
+            payload = yaml.load(f, Loader=yaml.SafeLoader)
+
+        if not isinstance(payload, dict) or "folds" not in payload:
+            raise ValueError(f"Invalid split file format: {split_file_path}")
+
+        if int(payload.get("k_fold", -1)) != int(k_fold):
+            raise ValueError(
+                f"split file k_fold={payload.get('k_fold')} does not match current k_fold={k_fold}: {split_file_path}"
+            )
+        if int(payload.get("seed", -1)) != int(seed):
+            raise ValueError(
+                f"split file seed={payload.get('seed')} does not match current split seed={seed}: {split_file_path}"
+            )
+
+        folds = payload.get("folds")
+        if not isinstance(folds, list) or len(folds) != int(k_fold):
+            raise ValueError(f"split file must contain exactly {k_fold} folds: {split_file_path}")
+
+        all_cases = set(str(name) for name in img_name_list)
+        holdout_cases = payload.get("holdout_test", None)
+        if holdout_cases is not None:
+            if not isinstance(holdout_cases, list):
+                raise ValueError(f"split file holdout_test must be list: {split_file_path}")
+            unknown = [name for name in holdout_cases if str(name) not in all_cases]
+            if unknown:
+                raise ValueError(f"split file holdout_test contains unknown cases: {unknown[:5]}")
+
+        for fold in folds:
+            # For backward compatibility, allow optional legacy test field.
+            split_keys = ["train", "val"] + (["test"] if "test" in fold else [])
+            for split_key in split_keys:
+                names = fold.get(split_key, [])
+                if not isinstance(names, list):
+                    raise ValueError(f"split file field folds[].{split_key} must be list: {split_file_path}")
+                unknown = [name for name in names if str(name) not in all_cases]
+                if unknown:
+                    raise ValueError(
+                        f"split file contains cases not found in dataset.yaml for folds[].{split_key}: {unknown[:5]}"
+                    )
+
+        return payload
+
+    def save_split_file(self, split_file_path, split_payload):
+        os.makedirs(os.path.dirname(split_file_path), exist_ok=True)
+        with open(split_file_path, "w", encoding="utf-8") as f:
+            yaml.dump(split_payload, f, sort_keys=False)
+        print(f"Saved fixed split file: {split_file_path}")
 
     def resolve_patch_index_path(self):
         patch_index_file = getattr(self.args, "patch_index_file", None)

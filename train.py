@@ -54,6 +54,20 @@ def train_net(net, args, ema_net=None, fold_idx=0):
     ################################################################################
     # Dataset Creation
     trainset = get_dataset(args, mode='train', fold_idx=fold_idx)
+    valset = get_dataset(args, mode='val', fold_idx=fold_idx)
+    testset = get_dataset(args, mode='test', fold_idx=fold_idx)
+
+    def _case_count(dataset_obj):
+        if hasattr(dataset_obj, "selected_names"):
+            return len(getattr(dataset_obj, "selected_names"))
+        return len(dataset_obj)
+
+    train_case_count = _case_count(trainset)
+    val_case_count = _case_count(valset)
+    test_case_count = _case_count(testset)
+    logging.info(
+        f"Split cases for fold {fold_idx}: train={train_case_count}, val={val_case_count}, holdout_test={test_case_count}"
+    )
     
     trainLoader = data.DataLoader(
         trainset, 
@@ -64,10 +78,8 @@ def train_net(net, args, ema_net=None, fold_idx=0):
         persistent_workers=(args.num_workers>0)
     )
 
-    valset = get_dataset(args, mode='val', fold_idx=fold_idx)
     valLoader = data.DataLoader(valset, batch_size=1, pin_memory=True, shuffle=False, num_workers=2)
 
-    testset = get_dataset(args, mode='test', fold_idx=fold_idx)
     testLoader = data.DataLoader(testset, batch_size=1, pin_memory=True, shuffle=False, num_workers=2)
     
     logging.info(f"Created Dataset and DataLoader")
@@ -359,6 +371,36 @@ def set_seed(seed):
     torch.backends.deterministic = True
     # torch.use_deterministic_algorithms(True)
 
+
+def resolve_fold_indices(args):
+    configured = getattr(args, "run_folds", None)
+    if configured is None:
+        return list(range(int(args.k_fold)))
+
+    if isinstance(configured, int):
+        fold_indices = [int(configured)]
+    elif isinstance(configured, str):
+        fold_indices = [int(v.strip()) for v in configured.split(",") if v.strip() != ""]
+    elif isinstance(configured, (list, tuple)):
+        fold_indices = [int(v) for v in configured]
+    else:
+        raise ValueError(f"Unsupported run_folds type: {type(configured)}")
+
+    if not fold_indices:
+        raise ValueError("run_folds is empty")
+
+    for fold_idx in fold_indices:
+        if fold_idx < 0 or fold_idx >= int(args.k_fold):
+            raise ValueError(f"Invalid fold index {fold_idx} for k_fold={args.k_fold}")
+
+    deduped = []
+    seen = set()
+    for fold_idx in fold_indices:
+        if fold_idx not in seen:
+            deduped.append(fold_idx)
+            seen.add(fold_idx)
+    return deduped
+
 if __name__ == '__main__':
     
     args = get_parser()
@@ -381,8 +423,9 @@ if __name__ == '__main__':
         set_seed(args.reproduce_seed)
    
     Dice_list, HD_list, ASD_list, IoU_list, ACC_list, SPE_list, SEN_list = [], [], [], [], [], [], []
+    fold_indices = resolve_fold_indices(args)
 
-    for fold_idx in range(args.k_fold):
+    for fold_idx in fold_indices:
         
         args.cp_dir = f"{args.cp_path}/{args.dataset}/{args.unique_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         os.makedirs(args.cp_dir, exist_ok=True)
@@ -428,8 +471,8 @@ if __name__ == '__main__':
     with open(f"{args.cp_dir}/cross_validation.txt",  'w') as f:
         np.set_printoptions(precision=4, suppress=True) 
         f.write('Dice\n')
-        for i in range(args.k_fold):
-            f.write(f"Fold {i}: {Dice_list[i]}\n")
+        for i, fold_idx in enumerate(fold_indices):
+            f.write(f"Fold {fold_idx}: {Dice_list[i]}\n")
         f.write(f"Each Class Dice Avg: {np.mean(total_Dice, axis=0)}\n")
         f.write(f"Each Class Dice Std: {np.std(total_Dice, axis=0)}\n")
         f.write(f"All classes Dice Avg: {total_Dice.mean()}\n")
@@ -438,8 +481,8 @@ if __name__ == '__main__':
         f.write("\n")
 
         f.write('Iou\n')
-        for i in range(args.k_fold):
-            f.write(f"Fold {i}: {IoU_list[i]}\n")
+        for i, fold_idx in enumerate(fold_indices):
+            f.write(f"Fold {fold_idx}: {IoU_list[i]}\n")
         f.write(f"Each Class Iou Avg: {np.mean(total_IoU, axis=0)}\n")
         f.write(f"Each Class Iou Std: {np.std(total_IoU, axis=0)}\n")
         f.write(f"All classes Iou Avg: {total_IoU.mean()}\n")
@@ -448,8 +491,8 @@ if __name__ == '__main__':
         f.write("\n")
 
         f.write('ACC\n')
-        for i in range(args.k_fold):
-            f.write(f"Fold {i}: {ACC_list[i]}\n")
+        for i, fold_idx in enumerate(fold_indices):
+            f.write(f"Fold {fold_idx}: {ACC_list[i]}\n")
         f.write(f"Each Class ACC Avg: {np.mean(total_ACC, axis=0)}\n")
         f.write(f"Each Class ACC Std: {np.std(total_ACC, axis=0)}\n")
         f.write(f"All classes ACC Avg: {total_ACC.mean()}\n")
@@ -458,8 +501,8 @@ if __name__ == '__main__':
         f.write("\n")
 
         f.write('SPE\n')
-        for i in range(args.k_fold):
-            f.write(f"Fold {i}: {SPE_list[i]}\n")
+        for i, fold_idx in enumerate(fold_indices):
+            f.write(f"Fold {fold_idx}: {SPE_list[i]}\n")
         f.write(f"Each Class SPE Avg: {np.mean(total_SPE, axis=0)}\n")
         f.write(f"Each Class SPE Std: {np.std(total_SPE, axis=0)}\n")
         f.write(f"All classes SPE Avg: {total_SPE.mean()}\n")
@@ -468,8 +511,8 @@ if __name__ == '__main__':
         f.write("\n")
     
         f.write('SEN\n')
-        for i in range(args.k_fold):
-            f.write(f"Fold {i}: {SEN_list[i]}\n")
+        for i, fold_idx in enumerate(fold_indices):
+            f.write(f"Fold {fold_idx}: {SEN_list[i]}\n")
         f.write(f"Each Class SEN Avg: {np.mean(total_SEN, axis=0)}\n")
         f.write(f"Each Class SEN Std: {np.std(total_SEN, axis=0)}\n")
         f.write(f"All classes SEN Avg: {total_SEN.mean()}\n")
@@ -478,8 +521,8 @@ if __name__ == '__main__':
         f.write("\n")
 
         f.write("HD\n")
-        for i in range(args.k_fold):
-            f.write(f"Fold {i}: {HD_list[i]}\n")
+        for i, fold_idx in enumerate(fold_indices):
+            f.write(f"Fold {fold_idx}: {HD_list[i]}\n")
         f.write(f"Each Class HD Avg: {np.mean(total_HD, axis=0)}\n")
         f.write(f"Each Class HD Std: {np.std(total_HD, axis=0)}\n")
         f.write(f"All classes HD Avg: {total_HD.mean()}\n")
@@ -488,8 +531,8 @@ if __name__ == '__main__':
         f.write("\n")
 
         f.write("ASD\n")
-        for i in range(args.k_fold):
-            f.write(f"Fold {i}: {ASD_list[i]}\n")
+        for i, fold_idx in enumerate(fold_indices):
+            f.write(f"Fold {fold_idx}: {ASD_list[i]}\n")
         f.write(f"Each Class ASD Avg: {np.mean(total_ASD, axis=0)}\n")
         f.write(f"Each Class ASD Std: {np.std(total_ASD, axis=0)}\n")
         f.write(f"All classes ASD Avg: {total_ASD.mean()}\n")
@@ -498,6 +541,6 @@ if __name__ == '__main__':
 
 
 
-    print(f'All {args.k_fold} folds done.')
+    print(f"All selected folds done: {fold_indices}")
 
     sys.exit(0)

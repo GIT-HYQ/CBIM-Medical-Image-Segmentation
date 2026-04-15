@@ -40,6 +40,10 @@ aux_weight: [0.5, 0.5]
 
 split_seed: 0
 k_fold: 5
+split_holdout_ratio: 0.15
+split_file: null
+save_split_file: true
+run_folds: null
 
 patch_index_enabled: False
 patch_index_file: null
