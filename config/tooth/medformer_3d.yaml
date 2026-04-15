@@ -41,6 +41,10 @@ aux_weight: [0.5, 0.5]
 split_seed: 0
 k_fold: 5
 
+patch_index_enabled: False
+patch_index_file: null
+patch_index_cache_cases: 2
+
 optimizer: adamw
 base_lr: 0.0004
 betas: [0.9, 0.999]
