@@ -1,5 +1,5 @@
 #DATA
-data_root: /path/to/tooth_3d
+data_root: /home/share/clr/share/data/CBCT/tooth_fairy2
 classes: 33
 modality: CT
 
