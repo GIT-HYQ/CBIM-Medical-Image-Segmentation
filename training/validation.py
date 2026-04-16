@@ -14,6 +14,7 @@ import SimpleITK as sitk
 import cv2
 import os
 import torchvision.utils as vutils
+import nibabel as nib
 
 def scale_image_max(image):
     # 将图像转换为浮点数格式
@@ -57,6 +58,27 @@ def save_images(img, msk, msk_pred, name, save_path):
     cv2.imwrite(image_path, img)
     cv2.imwrite(mask_path, msk)
     cv2.imwrite(pred_path, msk_pred)
+
+def save_images3d(img, label, label_pred, name, save_path):
+    """Save 3D images and labels as NIfTI files."""
+    os.makedirs(save_path, exist_ok=True)
+    # img, label, label_pred: [B, C, D, H, W] or [B, D, H, W]
+    if img.dim() == 5:
+        img_np = img[0].detach().cpu().numpy()  # [C, D, H, W]
+    else:
+        img_np = img.detach().cpu().numpy()
+    if label.dim() == 5:
+        label_np = label[0].detach().cpu().numpy()
+    else:
+        label_np = label.detach().cpu().numpy()
+    if label_pred.dim() == 5:
+        label_pred_np = label_pred[0].detach().cpu().numpy()
+    else:
+        label_pred_np = label_pred.detach().cpu().numpy()
+    # Save as .nii.gz
+    nib.save(nib.Nifti1Image(img_np.astype(np.float32), np.eye(4)), os.path.join(save_path, f"{name}_img.nii.gz"))
+    nib.save(nib.Nifti1Image(label_np.astype(np.uint8), np.eye(4)), os.path.join(save_path, f"{name}_gt.nii.gz"))
+    nib.save(nib.Nifti1Image(label_pred_np.astype(np.uint8), np.eye(4)), os.path.join(save_path, f"{name}_pred.nii.gz"))
 
 def visualize_results(writer, step, image, gt, max_v, pred, model=None, phase='Val'):
     """
@@ -332,7 +354,10 @@ def validation_ddp(net, dataloader, args):
             # 保存预测图片，仅主进程执行，避免多卡重复写文件
             if getattr(args, "save", False) and is_master(args):
                 save_path = args.save_path if args.save_path is not None else args.cp_dir + "/preds"
-                save_images2(inputs, labels, label_pred, name[0], save_path)
+                if img.dim() == 5:
+                    save_images3d(img, label, label_pred, name[0], save_path)
+                else:
+                    save_images2(img, label, label_pred, name[0], save_path)
 
             tmp_ASD_list, tmp_HD_list = calculate_distance(label_pred, labels, spacing[0], args.classes)
             # comment this for fast debugging. (HD and ASD computation for large 3D images are slow)
