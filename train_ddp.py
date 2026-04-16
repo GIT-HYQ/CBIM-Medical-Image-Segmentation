@@ -238,17 +238,21 @@ def get_parser():
     parser.add_argument('--dimension', type=str, default='2d', help='2d model or 3d model')
     parser.add_argument('--pretrain', action='store_true', help='if use pretrained weight for init')
     parser.add_argument('--amp', action='store_true', help='if use the automatic mixed precision for faster training')
-    parser.add_argument('--torch_compile', action='store_true', help='use torch.compile to accelerate training, only supported by pytorch2.0')
-
+    parser.add_argument('--torch_compile', action='store_true', help='use torch.compile, only supported by pytorch2.0')
     parser.add_argument('--batch_size', default=32, type=int, help='batch size')
     parser.add_argument('--resume', action='store_true', help='if resume training from checkpoint')
     parser.add_argument('--load', type=str, default=False, help='load pretrained model')
-    parser.add_argument('--cp_path', type=str, default='./exp/', help='the path to save checkpoint and logging info')
-    parser.add_argument('--log_path', type=str, default='./log/', help='the path to save tensorboard log')
+    parser.add_argument('--cp_path', type=str, default='./exp/', help='checkpoint path')
+    parser.add_argument('--log_path', type=str, default='./log/', help='log path')
     parser.add_argument('--unique_name', type=str, default='test', help='unique experiment name')
-    
-    parser.add_argument('--gpu', type=str, default='0,1,2,3')
-    parser.add_argument('--save', action='store_true', help='save prediction images during validation')
+    parser.add_argument('--gpu', type=str, default='0', help='gpu id(s)')
+    parser.add_argument('--reproduce_seed', type=int, default=42, help='random seed for reproducibility')
+    parser.add_argument('--save', action='store_true', help='save images')
+    parser.add_argument('--save_path', type=str, default=None, help='save images path')
+    parser.add_argument('--test_root', type=str, default=None, help='testset root dir')
+    parser.add_argument('--guidance_l2', action='store_true', default=False, help='enable guidance level 2')
+    parser.add_argument('--guidance_l3', action='store_true', default=False, help='enable guidance level 3')
+    parser.add_argument('--use_prior_input', action='store_true', default=False, help='enable use_prior_input, only for 2d model')
 
     args = parser.parse_args()
 
