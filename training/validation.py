@@ -354,10 +354,10 @@ def validation_ddp(net, dataloader, args):
             # 保存预测图片，仅主进程执行，避免多卡重复写文件
             if getattr(args, "save", False) and is_master(args):
                 save_path = args.save_path if args.save_path is not None else args.cp_dir + "/preds"
-                if img.dim() == 5:
-                    save_images3d(img, label, label_pred, name[0], save_path)
+                if inputs.dim() == 5:
+                    save_images3d(inputs, labels, label_pred, name[0], save_path)
                 else:
-                    save_images2(img, label, label_pred, name[0], save_path)
+                    save_images2(inputs, labels, label_pred, name[0], save_path)
 
             tmp_ASD_list, tmp_HD_list = calculate_distance(label_pred, labels, spacing[0], args.classes)
             # comment this for fast debugging. (HD and ASD computation for large 3D images are slow)
