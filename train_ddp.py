@@ -130,7 +130,21 @@ def train_net(net, trainset, testset, args, ema_net=None, fold_idx=0):
             dice_list_test, ASD_list_test, HD_list_test = validation(net_for_eval, testLoader, args)
             if is_master(args):
                 dice_list_test, ASD_list_test, HD_list_test = filter_validation_results(dice_list_test, ASD_list_test, HD_list_test, args) # filter results for some dataset, e.g. amos_mr
-                log_evaluation_result(writer, dice_list_test, ASD_list_test, HD_list_test, 'test', epoch, args)
+                # 兼容log_evaluation_result参数
+                log_evaluation_result(
+                    writer, 
+                    dice_list_test, 
+                    ASD_list_test, 
+                    HD_list_test, 
+                    None,  # IoU_list
+                    None,  # ACC_list
+                    None,  # SPE_list
+                    None,  # SEN_list
+                    None,  # name
+                    'test', 
+                    epoch, 
+                    args
+                )
             
                 if dice_list_test.mean() >= best_Dice.mean():
                     best_Dice = dice_list_test
