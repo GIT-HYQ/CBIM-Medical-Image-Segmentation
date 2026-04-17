@@ -2,6 +2,7 @@ import builtins
 import logging
 import os
 import random
+import datetime
 
 import torch
 import torch.nn as nn
@@ -24,7 +25,7 @@ from training.validation import validation_ddp as validation
 from training.utils import (
     exp_lr_scheduler_with_warmup, 
     log_evaluation_result_bak,
-    get_optimizer, 
+    get_optimizer,
     filter_validation_results,
     unwrap_model_checkpoint,
 )
@@ -337,7 +338,9 @@ def main_worker(proc_idx, ngpus_per_node, fold_idx, args, result_dict=None, trai
         args.workers = int((args.num_workers + args.ngpus_per_node - 1) / args.ngpus_per_node)
 
 
-    args.cp_dir = f"{args.cp_path}/{args.dataset}/{args.unique_name}"
+    # 在实验目录名中加入日期时间戳
+    timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    args.cp_dir = f"{args.cp_path}/{args.dataset}/{args.unique_name}_{timestamp}"
     os.makedirs(args.cp_dir, exist_ok=True)
     configure_logger(args.rank, args.cp_dir+f"/fold_{fold_idx}.txt")
     save_configure(args)
