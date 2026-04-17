@@ -23,7 +23,7 @@ from training.losses import DiceLoss
 from training.validation import validation_ddp as validation
 from training.utils import (
     exp_lr_scheduler_with_warmup, 
-    log_evaluation_result, 
+    log_evaluation_result_bak,
     get_optimizer, 
     filter_validation_results,
     unwrap_model_checkpoint,
@@ -130,21 +130,8 @@ def train_net(net, trainset, testset, args, ema_net=None, fold_idx=0):
             dice_list_test, ASD_list_test, HD_list_test = validation(net_for_eval, testLoader, args)
             if is_master(args):
                 dice_list_test, ASD_list_test, HD_list_test = filter_validation_results(dice_list_test, ASD_list_test, HD_list_test, args) # filter results for some dataset, e.g. amos_mr
-                # 兼容log_evaluation_result参数
-                log_evaluation_result(
-                    writer, 
-                    dice_list_test, 
-                    ASD_list_test, 
-                    HD_list_test, 
-                    None,  # IoU_list
-                    None,  # ACC_list
-                    None,  # SPE_list
-                    None,  # SEN_list
-                    None,  # name
-                    'test', 
-                    epoch, 
-                    args
-                )
+
+                log_evaluation_result_bak(writer, dice_list_test, ASD_list_test, HD_list_test, 'test', epoch, args)
             
                 if dice_list_test.mean() >= best_Dice.mean():
                     best_Dice = dice_list_test
@@ -259,7 +246,7 @@ def get_parser():
     parser.add_argument('--cp_path', type=str, default='./exp/', help='checkpoint path')
     parser.add_argument('--log_path', type=str, default='./log/', help='log path')
     parser.add_argument('--unique_name', type=str, default='test', help='unique experiment name')
-    parser.add_argument('--gpu', type=str, default='0', help='gpu id(s)')
+    parser.add_argument('--gpu', type=str, default='0,1,2,3', help='gpu id(s)')
     parser.add_argument('--reproduce_seed', type=int, default=42, help='random seed for reproducibility')
     parser.add_argument('--save', action='store_true', help='save images')
     parser.add_argument('--save_path', type=str, default=None, help='save images path')
